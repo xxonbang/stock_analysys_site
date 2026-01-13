@@ -120,21 +120,28 @@ def fetch_stock(symbol: str, period: str = '1m'):
                 end_date.strftime('%Y-%m-%d')
             )
         except Exception as e:
-            # 티커로 실패하면 이름으로 시도 (FinanceDataReader는 이름도 지원)
+            # 티커로 실패하면 이름으로 시도
             print(f"Ticker lookup failed, trying name lookup: {e}", file=sys.stderr)
             try:
                 # StockListing을 사용하여 이름으로 티커 찾기
-                stock_list = fdr.StockListing('KRX')
-                matching = stock_list[stock_list['Name'].str.contains(korea_symbol, na=False)]
-                if not matching.empty:
-                    korea_symbol = matching.iloc[0]['Symbol']
-                    df = fdr.DataReader(
-                        korea_symbol,
-                        start_date.strftime('%Y-%m-%d'),
-                        end_date.strftime('%Y-%m-%d')
-                    )
-                else:
-                    raise ValueError(f"Stock not found: {symbol}")
+                # KRX (코스피/코스닥) 전체 리스트 가져오기
+                try:
+                    stock_list = fdr.StockListing('KRX')
+                    matching = stock_list[stock_list['Name'].str.contains(korea_symbol, na=False, case=False)]
+                    if not matching.empty:
+                        korea_symbol = matching.iloc[0]['Symbol']
+                        print(f"Found ticker {korea_symbol} for {symbol}", file=sys.stderr)
+                        df = fdr.DataReader(
+                            korea_symbol,
+                            start_date.strftime('%Y-%m-%d'),
+                            end_date.strftime('%Y-%m-%d')
+                        )
+                    else:
+                        raise ValueError(f"Stock '{symbol}' not found in KRX listing")
+                except Exception as listing_error:
+                    # StockListing 실패 시 (API 오류 등) 원래 오류를 다시 발생
+                    print(f"StockListing failed: {listing_error}", file=sys.stderr)
+                    raise ValueError(f"Failed to fetch Korean stock data for {symbol}: {e}")
             except Exception as e2:
                 raise ValueError(f"Failed to fetch Korean stock data for {symbol}: {e2}")
     else:

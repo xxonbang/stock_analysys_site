@@ -154,11 +154,49 @@ export async function fetchStocksDataBatchVercel(
 ): Promise<Map<string, StockData>> {
   const results = new Map<string, StockData>();
 
-  // 심볼 정규화 (한국 주식 이름을 티커로 변환)
-  const normalizedSymbols = symbols.map(symbol => ({
-    original: symbol,
-    normalized: normalizeStockSymbol(symbol),
-  }));
+  // 심볼 정규화 (하이브리드 방식: 하드코딩 + 동적 검색)
+  // 동적 매핑 사용 여부 확인 (환경 변수 또는 기본값)
+  // 기본적으로 동적 매핑 활성화 (USE_DYNAMIC_TICKER_MAPPING=false로 비활성화 가능)
+  const useDynamicMapping = process.env.USE_DYNAMIC_TICKER_MAPPING !== 'false';
+  
+  console.log(`[Symbol Normalization] Using ${useDynamicMapping ? 'hybrid (static + dynamic)' : 'static only'} mapping`);
+  
+  // 심볼 정규화 (오류 발생 시 기존 방식으로 fallback)
+  const normalizedSymbols = await Promise.all(
+    symbols.map(async (symbol) => {
+      let normalized: string;
+      
+      try {
+        if (useDynamicMapping) {
+          // 하이브리드 방식: 하드코딩 + 동적 검색
+          try {
+            const { normalizeStockSymbolDynamic } = await import('./korea-stock-mapper-dynamic');
+            normalized = await normalizeStockSymbolDynamic(symbol);
+          } catch (dynamicError) {
+            // 동적 매핑 실패 시 기존 방식으로 fallback
+            console.warn(`[Symbol Normalization] Dynamic mapping failed for ${symbol}, using static mapping:`, dynamicError);
+            normalized = normalizeStockSymbol(symbol);
+          }
+        } else {
+          // 기존 방식 (하드코딩만)
+          normalized = normalizeStockSymbol(symbol);
+        }
+      } catch (error) {
+        // 전체 정규화 실패 시 원본 사용
+        console.error(`[Symbol Normalization] Failed to normalize ${symbol}, using original:`, error);
+        normalized = symbol;
+      }
+      
+      if (normalized !== symbol) {
+        console.log(`[Symbol Normalization] ${symbol} -> ${normalized}`);
+      }
+      
+      return {
+        original: symbol,
+        normalized,
+      };
+    })
+  );
 
   // Vercel Serverless Functions는 병렬 처리 가능
   // 하지만 안정성을 위해 약간의 딜레이 추가
@@ -176,9 +214,15 @@ export async function fetchStocksDataBatchVercel(
       // 원본 심볼로 저장 (사용자가 입력한 이름 유지)
       results.set(original, stockData);
     } catch (error) {
-      console.error(`Failed to fetch data for ${original} (${normalized}):`, error);
-      // 실패해도 계속 진행
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[fetchStocksDataBatchVercel] Failed to fetch data for ${original} (${normalized}):`, errorMessage);
+      // 실패해도 계속 진행 (다른 종목은 시도)
     }
+  }
+
+  // 모든 종목이 실패한 경우 오류 발생
+  if (results.size === 0) {
+    throw new Error(`모든 종목 데이터 수집에 실패했습니다. 입력한 종목: ${symbols.join(', ')}`);
   }
 
   return results;

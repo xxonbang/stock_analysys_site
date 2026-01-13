@@ -330,14 +330,24 @@ export async function POST(request: NextRequest) {
           console.warn(
             "Python script returned no data, falling back to yahoo-finance2"
           );
-          stockDataMap = await fetchStocksData(stocks);
+          try {
+            stockDataMap = await fetchStocksData(stocks);
+          } catch (fallbackError) {
+            console.error("Fallback to yahoo-finance2 also failed:", fallbackError);
+            throw new Error(`모든 종목 데이터 수집에 실패했습니다: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+          }
         }
       } catch (error) {
         console.error(
           "Python script failed, falling back to yahoo-finance2:",
           error
         );
-        stockDataMap = await fetchStocksData(stocks);
+        try {
+          stockDataMap = await fetchStocksData(stocks);
+        } catch (fallbackError) {
+          console.error("Fallback to yahoo-finance2 also failed:", fallbackError);
+          throw new Error(`모든 종목 데이터 수집에 실패했습니다: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+        }
       }
     } else {
       stockDataMap = await fetchStocksData(stocks);
