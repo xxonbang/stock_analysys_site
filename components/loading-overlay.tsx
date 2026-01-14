@@ -71,7 +71,7 @@ export function LoadingOverlay({ isLoading, stocks = [] }: LoadingOverlayProps) 
               {/* 중앙 아이콘 */}
               <div className="absolute inset-0 flex items-center justify-center">
                 <svg
-                  className="w-8 h-8 text-blue-600 animate-bounce"
+                  className="w-8 h-8 text-blue-600"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
