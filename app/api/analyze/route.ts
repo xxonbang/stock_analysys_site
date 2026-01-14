@@ -24,28 +24,41 @@ import type {
 import { periodToKorean } from "@/lib/period-utils";
 
 const getSystemPrompt = (
-  period: string
+  period: string,
+  historicalPeriod: string
 ) => `당신은 월스트리트와 여의도에서 20년 이상 활동한 **수석 투자 전략가(Chief Investment Strategist)**입니다.
 당신의 분석 스타일은 **'데이터에 기반한 냉철한 통찰'**입니다. 단순히 '사라/팔아라'가 아니라, 거시 경제 상황과 기업의 펀더멘털, 그리고 기술적 위치를 종합하여 논리적인 시나리오를 제시합니다.
 
 [분석 지침]
-**중요: 사용자가 요청한 분석 기간은 [${period}]입니다.**
+**중요: 사용자가 요청한 분석 기간은 다음과 같습니다.**
+- **향후 전망 분석 기간**: [${period}] - 이 기간 동안의 주가 전망을 분석하십시오.
+- **과거 이력 분석 기간**: [${historicalPeriod}] - 이 기간 동안의 과거 주가 움직임과 패턴을 분석하십시오.
+
+**향후 전망 분석 기간(${period}) 관점:**
 - '1일' 또는 '1주일'을 선택했다면 단기 트레이딩 관점에서 분석하십시오.
 - '1달' 또는 '3개월'을 선택했다면 중기 투자 관점에서 분석하십시오.
 - '6개월' 또는 '1년'을 선택했다면 펀더멘털과 장기 추세 관점에서 분석하십시오.
 
-1. 기술적 분석: 제공된 RSI, 이평선, 이격도 데이터를 바탕으로 현재 주가의 위치(과열/침체)를 진단하십시오. 선택된 기간(${period})에 맞는 관점으로 해석하십시오.
-2. 수급 분석: 기관/외국인 매매 동향을 통해 '스마트 머니'의 흐름을 해석하십시오.
-3. 결론: 선택된 기간(${period})에 맞는 투자 의견을 명확하게 제시하십시오. 단기/장기 관점을 구분하여 설명하십시오.
-4. 어조: 전문적이고 신뢰감 있게, 그러나 개인 투자자가 이해하기 쉽게 설명하십시오.
+**과거 이력 분석 기간(${historicalPeriod}) 관점:**
+- 제공된 과거 데이터(${historicalPeriod} 기간)를 바탕으로 주가의 과거 패턴, 추세, 변동성을 분석하십시오.
+- 과거 이력과 현재 상황을 비교하여 향후 전망의 신뢰도를 평가하십시오.
+
+1. **과거 이력 분석**: 제공된 과거 데이터(${historicalPeriod} 기간)를 바탕으로 주가의 과거 패턴, 추세, 변동성, 주요 이벤트를 분석하십시오.
+2. **기술적 분석**: 제공된 RSI, 이평선, 이격도 데이터를 바탕으로 현재 주가의 위치(과열/침체)를 진단하십시오. 과거 이력(${historicalPeriod})과 비교하여 현재 위치를 평가하십시오.
+3. **수급 분석**: 기관/외국인 매매 동향을 통해 '스마트 머니'의 흐름을 해석하십시오.
+4. **향후 전망**: 과거 이력(${historicalPeriod}) 분석 결과와 현재 기술적 지표를 종합하여 향후 전망 기간(${period}) 동안의 주가 전망을 제시하십시오.
+5. **결론**: 향후 전망 기간(${period})에 맞는 투자 의견을 명확하게 제시하십시오. 과거 이력 분석 결과를 근거로 제시하십시오.
+6. **어조**: 전문적이고 신뢰감 있게, 그러나 개인 투자자가 이해하기 쉽게 설명하십시오.
 
 응답은 마크다운 형식으로 작성하되, 다음 구조를 따르세요:
+## 과거 이력 분석 (${historicalPeriod} 기간)
 ## 현재 시장 상황
-## 기술적 분석 (${period} 관점)
+## 기술적 분석 (과거 이력 ${historicalPeriod} vs 현재)
 ## 수급 분석
+## 향후 전망 (${period} 기간)
 ## 투자 의견
-  - 단기 관점
-  - 장기 관점
+  - 과거 이력 기반 평가
+  - 향후 전망 기간(${period}) 관점
 `;
 
 /**
@@ -61,16 +74,37 @@ async function generateAIReportsBatch(
     marketData: AnalyzeResult["marketData"];
   }>,
   period: string,
+  historicalPeriod: string,
   genAI: GoogleGenerativeAI
 ): Promise<Map<string, string>> {
   // Gemini 모델명: gemini-2.5-flash 사용 (최신 모델)
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const systemPrompt = getSystemPrompt(period);
+  const systemPrompt = getSystemPrompt(period, historicalPeriod);
 
   // 모든 종목의 데이터를 하나의 프롬프트로 구성
   const stocksDataPrompt = stocksData
     .map(({ symbol, marketData }) => {
+      // 프롬프트에 포함될 지표 확인 로깅
+      const includedIndicators = [];
+      if (marketData.rsi !== undefined) includedIndicators.push("RSI");
+      if (marketData.movingAverages !== undefined)
+        includedIndicators.push("MovingAverages");
+      if (marketData.disparity !== undefined)
+        includedIndicators.push("Disparity");
+      if (marketData.supplyDemand !== undefined)
+        includedIndicators.push("SupplyDemand");
+      if (marketData.vix !== undefined) includedIndicators.push("VIX");
+      if (marketData.exchangeRate !== undefined)
+        includedIndicators.push("ExchangeRate");
+      if (marketData.news !== undefined && marketData.news.length > 0)
+        includedIndicators.push("News");
+
+      console.log(
+        `[Gemini Prompt] Indicators included for ${symbol}:`,
+        includedIndicators
+      );
+
       return `
 ## 종목 ${symbol}
 
@@ -276,11 +310,23 @@ ${formatExample}
 export async function POST(request: NextRequest) {
   try {
     const body: AnalyzeRequest = await request.json();
-    const { stocks, period, indicators } = body;
+    const { stocks, period, historicalPeriod, indicators } = body;
+
+    // 지표 선택 상태 로깅
+    console.log("[Analyze API] Selected indicators:", {
+      rsi: indicators.rsi,
+      movingAverages: indicators.movingAverages,
+      disparity: indicators.disparity,
+      supplyDemand: indicators.supplyDemand,
+      fearGreed: indicators.fearGreed,
+      exchangeRate: indicators.exchangeRate,
+    });
 
     // period 기본값 설정
     const analysisPeriod = period || "1m";
+    const historicalAnalysisPeriod = historicalPeriod || "3m";
     const periodKorean = periodToKorean(analysisPeriod);
+    const historicalPeriodKorean = periodToKorean(historicalAnalysisPeriod);
 
     if (!stocks || stocks.length === 0) {
       return NextResponse.json(
@@ -328,14 +374,18 @@ export async function POST(request: NextRequest) {
 
     if (usePython) {
       console.log(
-        `Using Python script directly... (period: ${analysisPeriod})`
+        `Using Python script directly... (historical period: ${historicalAnalysisPeriod}, forecast period: ${analysisPeriod})`
       );
       console.log(`Original symbols: ${stocks.join(", ")}`);
       try {
         const { fetchStocksDataBatchVercel } = await import(
           "@/lib/finance-vercel"
         );
-        stockDataMap = await fetchStocksDataBatchVercel(stocks, analysisPeriod);
+        // 과거 이력 분석 기간으로 데이터 수집
+        stockDataMap = await fetchStocksDataBatchVercel(
+          stocks,
+          historicalAnalysisPeriod
+        );
         console.log(
           `Fetched data for symbols: ${Array.from(stockDataMap.keys()).join(
             ", "
@@ -448,6 +498,17 @@ export async function POST(request: NextRequest) {
         ...(news.length > 0 && { news }),
       };
 
+      // marketData에 포함된 지표 로깅
+      console.log(`[Analyze API] Market data for ${symbol}:`, {
+        hasRSI: marketData.rsi !== undefined,
+        hasMovingAverages: marketData.movingAverages !== undefined,
+        hasDisparity: marketData.disparity !== undefined,
+        hasSupplyDemand: marketData.supplyDemand !== undefined,
+        hasVIX: marketData.vix !== undefined,
+        hasExchangeRate: marketData.exchangeRate !== undefined,
+        hasNews: marketData.news !== undefined,
+      });
+
       stocksDataForAI.push({ symbol, marketData });
     }
 
@@ -466,6 +527,7 @@ export async function POST(request: NextRequest) {
             return await generateAIReportsBatch(
               stocksDataForAI,
               periodKorean,
+              historicalPeriodKorean,
               genAI
             );
           },
@@ -495,6 +557,7 @@ export async function POST(request: NextRequest) {
       results.push({
         symbol,
         period: periodKorean,
+        historicalPeriod: historicalPeriodKorean,
         marketData,
         aiReport,
       });

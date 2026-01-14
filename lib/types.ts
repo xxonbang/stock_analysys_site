@@ -8,7 +8,8 @@ export type AnalysisPeriod = '1d' | '1w' | '1m' | '3m' | '6m' | '1y';
  */
 export interface AnalyzeRequest {
   stocks: string[];
-  period: AnalysisPeriod;
+  period: AnalysisPeriod; // 종목별 향후 전망 분석 기간
+  historicalPeriod: AnalysisPeriod; // 종목별 과거 이력 분석 기간
   indicators: {
     rsi: boolean;
     movingAverages: boolean;
@@ -24,7 +25,8 @@ export interface AnalyzeRequest {
  */
 export interface AnalyzeResult {
   symbol: string;
-  period?: string; // 분석 기간 (한국어)
+  period?: string; // 향후 전망 분석 기간 (한국어)
+  historicalPeriod?: string; // 과거 이력 분석 기간 (한국어)
   marketData: {
     price: number;
     change: number;

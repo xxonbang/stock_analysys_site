@@ -14,7 +14,8 @@ import type { AnalysisPeriod } from '@/lib/types';
 export default function HomePage() {
   const router = useRouter();
   const [stocks, setStocks] = useState<string[]>(['']);
-  const [period, setPeriod] = useState<AnalysisPeriod>('1m');
+  const [period, setPeriod] = useState<AnalysisPeriod>('1m'); // 향후 전망 분석 기간
+  const [historicalPeriod, setHistoricalPeriod] = useState<AnalysisPeriod>('3m'); // 과거 이력 분석 기간
   const [indicators, setIndicators] = useState({
     rsi: true,
     movingAverages: true,
@@ -63,8 +64,12 @@ export default function HomePage() {
       const request: AnalyzeRequest = {
         stocks: validStocks,
         period,
+        historicalPeriod,
         indicators,
       };
+
+      // 지표 선택 상태 로깅 (디버깅용)
+      console.log('[Frontend] Sending request with indicators:', indicators);
 
       const response = await fetch('/api/analyze', {
         method: 'POST',
@@ -113,31 +118,30 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <LoadingOverlay isLoading={isLoading} stocks={validStocks} />
       
-      <div className="container mx-auto px-4 py-12 max-w-4xl">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">📈 Stock Insight</h1>
-          <p className="text-gray-600">AI 기반 실시간 주식 분석 리포트</p>
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 max-w-4xl">
+        <div className="text-center mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">📈 Stock Insight</h1>
+          <p className="text-sm sm:text-base text-gray-600">AI 기반 실시간 주식 분석 리포트</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>주식 분석 요청</CardTitle>
-            <CardDescription>
-              분석할 종목을 입력하고 원하는 지표를 선택하세요
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* 종목 입력 섹션 */}
-              <div className="space-y-4">
-                <label className="text-sm font-medium text-gray-700">
-                  종목 코드 (예: AAPL, TSLA, 005930.KS)
-                </label>
+        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+          {/* 종목 입력 섹션 */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl sm:text-2xl">종목 입력</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                분석할 종목을 입력하세요 (최대 5개)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 sm:space-y-4">
+              <label className="text-xs sm:text-sm font-medium text-gray-700 block">
+                종목명, 종목코드, 티커 등 (예: AAPL, TSLA, 005930.KS)
+              </label>
                 {stocks.map((stock, index) => (
                   <div key={index} className="flex gap-2">
                     <Input
                       type="text"
-                      placeholder="종목 코드 입력"
+                      placeholder="종목 입력"
                       value={stock}
                       onChange={(e) => updateStock(index, e.target.value)}
                       disabled={isLoading}
@@ -162,19 +166,63 @@ export default function HomePage() {
                     variant="outline"
                     onClick={addStockInput}
                     disabled={isLoading}
-                    className="w-full"
+                    className="w-full text-sm sm:text-base"
                   >
                     ➕ 종목 추가
                   </Button>
                 )}
-              </div>
+            </CardContent>
+          </Card>
 
-              {/* 분석 기간 선택 섹션 */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">
-                  분석 기간
-                </label>
-                <div className="flex flex-wrap gap-2">
+          {/* 종목별 과거 이력 분석 기간 선택 섹션 */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl sm:text-2xl">종목별 과거 이력 분석 기간</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                분석할 과거 데이터 기간을 선택하세요
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  {(['1d', '1w', '1m', '3m', '6m', '1y'] as AnalysisPeriod[]).map((p) => {
+                    const labels: Record<AnalysisPeriod, string> = {
+                      '1d': '1일',
+                      '1w': '1주일',
+                      '1m': '1달',
+                      '3m': '3개월',
+                      '6m': '6개월',
+                      '1y': '1년',
+                    };
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setHistoricalPeriod(p)}
+                        disabled={isLoading}
+                        className={`px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md font-medium transition-colors ${
+                          historicalPeriod === p
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {labels[p]}
+                      </button>
+                    );
+                  })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 종목별 향후 전망 분석 기간 선택 섹션 */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl sm:text-2xl">종목별 향후 전망 분석 기간</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                향후 전망할 기간을 선택하세요
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {(['1d', '1w', '1m', '3m', '6m', '1y'] as AnalysisPeriod[]).map((p) => {
                     const labels: Record<AnalysisPeriod, string> = {
                       '1d': '1일',
@@ -190,7 +238,7 @@ export default function HomePage() {
                         type="button"
                         onClick={() => setPeriod(p)}
                         disabled={isLoading}
-                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                        className={`px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md font-medium transition-colors ${
                           period === p
                             ? 'bg-primary text-primary-foreground'
                             : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
@@ -200,16 +248,21 @@ export default function HomePage() {
                       </button>
                     );
                   })}
-                </div>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* 지표 선택 섹션 */}
-              <div className="space-y-3">
-                <label className="text-sm font-medium text-gray-700">
-                  분석 지표 선택
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex items-center space-x-2 cursor-pointer">
+          {/* 지표 선택 섹션 */}
+          <Card>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-xl sm:text-2xl">분석 지표 선택</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                분석에 사용할 지표를 선택하세요
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.rsi}
                       onChange={(e) =>
@@ -217,9 +270,9 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">RSI</span>
+                    <span className="text-xs sm:text-sm">RSI</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.movingAverages}
                       onChange={(e) =>
@@ -230,9 +283,9 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">이동평균선 (5/20/60/120)</span>
+                    <span className="text-xs sm:text-sm">이동평균선 (5/20/60/120)</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.disparity}
                       onChange={(e) =>
@@ -243,9 +296,9 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">이격도</span>
+                    <span className="text-xs sm:text-sm">이격도</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.supplyDemand}
                       onChange={(e) =>
@@ -256,9 +309,9 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">수급 (기관/외인)</span>
+                    <span className="text-xs sm:text-sm">수급 (기관/외인)</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.fearGreed}
                       onChange={(e) =>
@@ -269,9 +322,9 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">공포/탐욕 지수</span>
+                    <span className="text-xs sm:text-sm">공포/탐욕 지수</span>
                   </label>
-                  <label className="flex items-center space-x-2 cursor-pointer">
+                  <label className="flex items-center space-x-2 cursor-pointer py-1">
                     <Checkbox
                       checked={indicators.exchangeRate}
                       onChange={(e) =>
@@ -282,17 +335,18 @@ export default function HomePage() {
                       }
                       disabled={isLoading}
                     />
-                    <span className="text-sm">환율</span>
+                    <span className="text-xs sm:text-sm">환율</span>
                   </label>
-                </div>
               </div>
+            </CardContent>
+          </Card>
 
-              {/* 분석 시작 버튼 */}
-              <Button
-                type="submit"
-                disabled={isLoading}
-                className="w-full h-14 text-lg font-semibold relative overflow-hidden group transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
-              >
+          {/* 분석 시작 버튼 */}
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="w-full h-12 sm:h-14 text-base sm:text-lg font-semibold relative overflow-hidden group transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+          >
                 {isLoading ? (
                   <span className="flex items-center justify-center gap-2">
                     <svg
@@ -326,10 +380,8 @@ export default function HomePage() {
                 {!isLoading && (
                   <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></span>
                 )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          </Button>
+        </form>
       </div>
     </div>
   );

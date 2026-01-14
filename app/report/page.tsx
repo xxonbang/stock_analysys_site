@@ -142,10 +142,15 @@ export default function ReportPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">📊 분석 결과</h1>
-            {currentResult.period && (
-              <p className="text-sm text-gray-600 mt-1">
-                분석 기간: {currentResult.period}
-              </p>
+            {(currentResult.period || currentResult.historicalPeriod) && (
+              <div className="text-sm text-gray-600 mt-1 space-y-1">
+                {currentResult.historicalPeriod && (
+                  <p>과거 이력 분석 기간: {currentResult.historicalPeriod}</p>
+                )}
+                {currentResult.period && (
+                  <p>향후 전망 분석 기간: {currentResult.period}</p>
+                )}
+              </div>
             )}
           </div>
           <Button variant="outline" onClick={() => router.push('/')}>
@@ -166,9 +171,11 @@ export default function ReportPage() {
               }`}
             >
               {result.symbol}
-              {result.period && (
+              {(result.period || result.historicalPeriod) && (
                 <span className="ml-2 text-xs opacity-75">
-                  ({result.period})
+                  {result.historicalPeriod && `과거: ${result.historicalPeriod}`}
+                  {result.historicalPeriod && result.period && ' / '}
+                  {result.period && `전망: ${result.period}`}
                 </span>
               )}
             </button>

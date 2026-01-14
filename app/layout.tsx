@@ -19,33 +19,33 @@ export default function RootLayout({
     <html lang="ko">
       <body className={inter.className}>
         <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-          <div className="container mx-auto px-4 py-3">
+          <div className="container mx-auto px-4 sm:px-6 py-2 sm:py-3">
             <div className="flex items-center justify-between">
-              <Link href="/" className="text-xl font-bold text-gray-900">
+              <Link href="/" className="text-lg sm:text-xl font-bold text-gray-900">
                 📈 Stock Insight
               </Link>
-              <div className="flex gap-4">
+              <div className="flex gap-2 sm:gap-4">
                 <Link
                   href="/"
-                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 transition-colors px-1 sm:px-0"
                 >
                   분석
                 </Link>
                 <Link
                   href="/metrics"
-                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 transition-colors px-1 sm:px-0"
                 >
                   메트릭
                 </Link>
                 <Link
                   href="/alerts"
-                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 transition-colors px-1 sm:px-0"
                 >
                   알림
                 </Link>
                 <Link
                   href="/settings"
-                  className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
+                  className="text-xs sm:text-sm text-gray-600 hover:text-gray-900 transition-colors px-1 sm:px-0"
                 >
                   설정
                 </Link>
