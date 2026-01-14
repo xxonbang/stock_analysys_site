@@ -14,6 +14,7 @@ import axios from 'axios';
 import type { StockData, SupplyDemandData } from './finance';
 import { calculateRSI, calculateMA, calculateDisparity } from './finance';
 import yahooFinance from 'yahoo-finance2';
+import { validateFinnhubYahooConsistency } from './data-consistency-checker';
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
@@ -77,6 +78,9 @@ async function finnhubRequest<T>(endpoint: string, params: Record<string, string
  * @param symbol 주식 티커 (예: "AAPL", "TSLA", "005930" for Samsung)
  */
 export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> {
+  const startTime = Date.now();
+  const { metrics } = await import('./data-metrics');
+
   try {
     // 1. 현재 시세 조회
     const quote = await finnhubRequest<FinnhubQuote>('/quote', { symbol });
@@ -85,9 +89,14 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
       throw new Error(`Invalid symbol or no data available: ${symbol}`);
     }
 
+    // 데이터 유효성 검증
     const currentPrice = quote.c;
-    const change = quote.d;
-    const changePercent = quote.dp;
+    if (currentPrice === null || currentPrice === undefined || isNaN(currentPrice) || currentPrice <= 0) {
+      throw new Error(`Invalid price for ${symbol}: ${currentPrice}`);
+    }
+
+    const change = quote.d || 0;
+    const changePercent = quote.dp || 0;
 
     // 2. 과거 120일치 데이터 조회
     // Finnhub 무료 플랜에서는 /stock/candle API가 제한되므로
@@ -155,9 +164,59 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
         throw new Error(`No historical data available for ${symbol}`);
       }
 
-      closes = historical.map((h) => h.close || 0).reverse();
-      volumes = historical.map((h) => h.volume || 0).reverse();
-      timestamps = historical.map((h) => Math.floor((h.date?.getTime() || Date.now()) / 1000)).reverse();
+      // 유효한 데이터만 필터링
+      const validHistorical = historical.filter(
+        (h) => h.close !== null && h.close !== undefined && !isNaN(h.close) && h.close > 0
+      );
+
+      if (validHistorical.length === 0) {
+        throw new Error(`No valid historical data for ${symbol}`);
+      }
+
+      // 데이터 소스 정합성 검증 (Finnhub quote + Yahoo Finance historical)
+      // 타입 안전성을 위해 매핑
+      const historicalForValidation = validHistorical.map((h) => ({
+        date: h.date,
+        close: h.close! as number, // 필터링으로 null이 아님을 보장
+      }));
+
+      const consistencyCheck = await validateFinnhubYahooConsistency(
+        { c: currentPrice, t: quote.t },
+        historicalForValidation,
+        symbol
+      );
+
+      // 메트릭 수집
+      const { metrics } = await import('./data-metrics');
+      metrics.consistencyCheck(
+        symbol,
+        'Finnhub+Yahoo',
+        consistencyCheck.warnings,
+        consistencyCheck.errors,
+        {
+          quotePrice: currentPrice,
+          quoteTimestamp: quote.t,
+          historicalCount: validHistorical.length,
+        }
+      );
+
+      if (!consistencyCheck.isValid) {
+        console.error(
+          `[Data Consistency] ${symbol}: Data consistency check failed. Errors:`,
+          consistencyCheck.errors
+        );
+        // 오류가 있어도 계속 진행 (경고만 표시)
+      }
+
+      if (consistencyCheck.warnings.length > 0) {
+        console.warn(
+          `[Data Consistency] ${symbol}: ${consistencyCheck.warnings.length} warning(s) detected`
+        );
+      }
+
+      closes = validHistorical.map((h) => h.close || 0).reverse();
+      volumes = validHistorical.map((h) => h.volume || 0).reverse();
+      timestamps = validHistorical.map((h) => Math.floor((h.date?.getTime() || Date.now()) / 1000)).reverse();
     }
 
     // Historical 데이터 구성
@@ -178,6 +237,11 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
     // Market cap은 별도 API 호출 필요 (선택사항)
     // const companyProfile = await finnhubRequest('/stock/profile2', { symbol });
 
+    const responseTime = Date.now() - startTime;
+    metrics.success(symbol, 'Finnhub', responseTime, {
+      historicalDataPoints: historicalData.length,
+    });
+
     return {
       symbol,
       price: currentPrice,
@@ -196,8 +260,9 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
       historicalData,
     };
   } catch (error) {
-    console.error(`Error fetching Finnhub data for ${symbol}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+    metrics.error(symbol, 'Finnhub', errorMessage);
+    console.error(`Error fetching Finnhub data for ${symbol}:`, error);
     throw new Error(`Failed to fetch stock data for ${symbol}: ${errorMessage}`);
   }
 }

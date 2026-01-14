@@ -1,38 +1,38 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
-import { join } from 'path';
+import { NextRequest, NextResponse } from "next/server";
+import { spawn } from "child_process";
+import { join } from "path";
 
 /**
  * Python 스크립트를 직접 실행하는 테스트 API
  * child_process를 사용하여 서버 없이 Python 실행
- * 
+ *
  * ⚠️ 개발/디버깅 전용 API입니다.
  * 프로덕션 환경에서는 사용하지 않습니다.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const searchParams = request.nextUrl.searchParams;
-  const symbol = searchParams.get('symbol') || 'AAPL';
+  const symbol = searchParams.get("symbol") || "AAPL";
 
   return new Promise<NextResponse>((resolve) => {
-    const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
-    const pythonProcess = spawn('python3', [scriptPath, symbol]);
+    const scriptPath = join(process.cwd(), "scripts", "test_python_stock.py");
+    const pythonProcess = spawn("python3", [scriptPath, symbol]);
 
-    let output = '';
-    let errorOutput = '';
+    let output = "";
+    let errorOutput = "";
 
-    pythonProcess.stdout.on('data', (data) => {
+    pythonProcess.stdout.on("data", (data) => {
       output += data.toString();
     });
 
-    pythonProcess.stderr.on('data', (data) => {
+    pythonProcess.stderr.on("data", (data) => {
       errorOutput += data.toString();
     });
 
-    pythonProcess.on('close', (code) => {
+    pythonProcess.on("close", (code) => {
       if (code !== 0) {
         resolve(
           NextResponse.json(
-            { 
+            {
               error: `Python script failed with code ${code}`,
               stderr: errorOutput,
             },
@@ -44,10 +44,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       try {
         // JSON 출력 찾기 (에러 메시지 제외)
-        const lines = output.split('\n');
-        let jsonLine = '';
+        const lines = output.split("\n");
+        let jsonLine = "";
         for (const line of lines) {
-          if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+          if (line.trim().startsWith("{") && line.trim().endsWith("}")) {
             jsonLine = line.trim();
             break;
           }
@@ -55,19 +55,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
         if (!jsonLine) {
           // 여러 줄 JSON인 경우
-          const jsonStart = output.indexOf('{');
-          const jsonEnd = output.lastIndexOf('}') + 1;
+          const jsonStart = output.indexOf("{");
+          const jsonEnd = output.lastIndexOf("}") + 1;
           if (jsonStart !== -1 && jsonEnd > jsonStart) {
             jsonLine = output.substring(jsonStart, jsonEnd);
           }
         }
 
         if (!jsonLine) {
-          throw new Error('No JSON output found');
+          throw new Error("No JSON output found");
         }
 
         const result = JSON.parse(jsonLine);
-        
+
         if (result.error) {
           resolve(
             NextResponse.json(
@@ -81,8 +81,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       } catch (e) {
         resolve(
           NextResponse.json(
-            { 
-              error: 'Failed to parse Python output',
+            {
+              error: "Failed to parse Python output",
               output: output,
               stderr: errorOutput,
             },

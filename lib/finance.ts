@@ -175,6 +175,9 @@ export async function fetchStockData(
   symbol: string,
   quoteData?: any
 ): Promise<StockData> {
+  const startTime = Date.now();
+  const { metrics } = await import('./data-metrics');
+
   try {
     // quote 데이터가 제공되지 않은 경우에만 개별 요청
     let quote = quoteData;
@@ -186,11 +189,16 @@ export async function fetchStockData(
       throw new Error(`Invalid symbol or no data available: ${symbol}`);
     }
 
+    // 데이터 유효성 검증
     const currentPrice = quote.regularMarketPrice;
+    if (currentPrice === null || currentPrice === undefined || isNaN(currentPrice) || currentPrice <= 0) {
+      throw new Error(`Invalid price for ${symbol}: ${currentPrice}`);
+    }
+
     const change = quote.regularMarketChange || 0;
     const changePercent = quote.regularMarketChangePercent || 0;
-    const volume = quote.regularMarketVolume || 0;
-    const marketCap = quote.marketCap;
+    const volume = Math.max(0, quote.regularMarketVolume || 0);
+    const marketCap = quote.marketCap && quote.marketCap > 0 ? quote.marketCap : undefined;
 
     // 과거 120일치 데이터 조회 (이동평균선 계산을 위해)
     const endDate = new Date();
@@ -215,13 +223,31 @@ export async function fetchStockData(
       throw new Error(`No historical data available for ${symbol}`);
     }
 
-    // 종가 배열 추출 (최신순)
-    const closes = historical.map((h) => h.close).reverse();
-    const historicalData = historical.reverse().map((h) => ({
-      date: h.date.toISOString().split('T')[0],
-      close: h.close,
-      volume: h.volume || 0,
-    }));
+    // 종가 배열 추출 (최신순) 및 검증
+    const closes = historical
+      .map((h) => {
+        const close = h.close;
+        if (close === null || close === undefined || isNaN(close) || close <= 0) {
+          console.warn(`Invalid close price in historical data: ${close}`);
+          return null;
+        }
+        return close;
+      })
+      .filter((close): close is number => close !== null)
+      .reverse();
+
+    if (closes.length === 0) {
+      throw new Error(`No valid close prices in historical data for ${symbol}`);
+    }
+
+    const historicalData = historical
+      .filter((h) => h.close !== null && h.close !== undefined && !isNaN(h.close) && h.close > 0)
+      .reverse()
+      .map((h) => ({
+        date: h.date.toISOString().split('T')[0],
+        close: h.close,
+        volume: h.volume || 0,
+      }));
 
     // 기술적 지표 계산
     const rsi = calculateRSI(closes, 14);
@@ -230,6 +256,11 @@ export async function fetchStockData(
     const ma60 = calculateMA(closes, 60);
     const ma120 = calculateMA(closes, 120);
     const disparity = calculateDisparity(currentPrice, ma20);
+
+    const responseTime = Date.now() - startTime;
+    metrics.success(symbol, 'Yahoo Finance', responseTime, {
+      historicalDataPoints: historicalData.length,
+    });
 
     return {
       symbol,
@@ -249,8 +280,9 @@ export async function fetchStockData(
       historicalData,
     };
   } catch (error) {
-    console.error(`Error fetching data for ${symbol}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+    metrics.error(symbol, 'Yahoo Finance', errorMessage);
+    console.error(`Error fetching data for ${symbol}:`, error);
     if (errorMessage.includes('Too Many Requests')) {
       throw new Error(
         `Yahoo Finance API 요청 한도 초과. ${symbol} 데이터를 가져올 수 없습니다. 잠시 후 다시 시도해주세요.`
@@ -339,10 +371,54 @@ export async function fetchVIX(): Promise<number | null> {
 }
 
 /**
- * 네이버 금융에서 한국 주식의 수급 데이터 크롤링
+ * 한국 주식의 수급 데이터 수집 (KRX API 우선, 실패 시 네이버 크롤링)
  * @param symbol 한국 주식 티커 (예: "005930")
  */
 export async function fetchKoreaSupplyDemand(symbol: string): Promise<SupplyDemandData | null> {
+  // KRX Open API 우선 시도
+  let krxFailed = false;
+  let krxFailureReason: string | undefined;
+  
+  try {
+    const { fetchKoreaSupplyDemandKRX } = await import('./krx-api');
+    const krxData = await fetchKoreaSupplyDemandKRX(symbol);
+    if (krxData) {
+      console.log(`[Supply/Demand] Using KRX API for ${symbol}`);
+      return krxData;
+    }
+    // null 반환된 경우 (API 키 없음, 데이터 없음 등)
+    krxFailed = true;
+    krxFailureReason = 'KRX API returned no data';
+  } catch (error) {
+    // 오류 발생한 경우 (401, 네트워크 오류 등)
+    krxFailed = true;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    krxFailureReason = errorMessage;
+    
+    // 401 오류는 이미 알림이 생성되었으므로 별도 로깅만
+    if (errorMessage.includes('401') || errorMessage.includes('유효하지 않습니다')) {
+      console.warn(`[Supply/Demand] KRX API key invalid for ${symbol}, falling back to Naver (alert already created)`);
+    } else {
+      console.warn(`[Supply/Demand] KRX API failed for ${symbol}, falling back to Naver:`, errorMessage);
+    }
+  }
+
+  // KRX API 실패 시 네이버 금융 크롤링 사용 (Fallback)
+  if (krxFailed) {
+    console.log(`[Supply/Demand] Using Naver Finance (crawling) as fallback for ${symbol}${krxFailureReason ? ` (reason: ${krxFailureReason})` : ''}`);
+  }
+  
+  return await fetchKoreaSupplyDemandNaver(symbol);
+}
+
+/**
+ * 네이버 금융에서 한국 주식의 수급 데이터 크롤링 (Fallback)
+ * @param symbol 한국 주식 티커 (예: "005930")
+ */
+async function fetchKoreaSupplyDemandNaver(symbol: string): Promise<SupplyDemandData | null> {
+  const startTime = Date.now();
+  const { metrics } = await import('./data-metrics');
+
   try {
     // 네이버 금융 투자자별 매매동향 페이지 URL
     const url = `https://finance.naver.com/item/frgn.naver?code=${symbol}`;
@@ -373,9 +449,15 @@ export async function fetchKoreaSupplyDemand(symbol: string): Promise<SupplyDema
           const foreignText = $(cells[2]).text().trim().replace(/,/g, '');
           const individualText = $(cells[3]).text().trim().replace(/,/g, '');
 
-          institutional = parseInt(institutionalText) || 0;
-          foreign = parseInt(foreignText) || 0;
-          individual = parseInt(individualText) || 0;
+          // 숫자 검증 및 파싱
+          const institutionalParsed = parseInt(institutionalText.replace(/[^-\d]/g, ''), 10);
+          const foreignParsed = parseInt(foreignText.replace(/[^-\d]/g, ''), 10);
+          const individualParsed = parseInt(individualText.replace(/[^-\d]/g, ''), 10);
+
+          // NaN 체크
+          if (!isNaN(institutionalParsed)) institutional = institutionalParsed;
+          if (!isNaN(foreignParsed)) foreign = foreignParsed;
+          if (!isNaN(individualParsed)) individual = individualParsed;
         }
       }
     });
@@ -387,25 +469,48 @@ export async function fetchKoreaSupplyDemand(symbol: string): Promise<SupplyDema
         if (index === 0) {
           const cells = $(element).find('td');
           if (cells.length >= 4) {
-            institutional = parseInt($(cells[1]).text().trim().replace(/,/g, '')) || 0;
-            foreign = parseInt($(cells[2]).text().trim().replace(/,/g, '')) || 0;
-            individual = parseInt($(cells[3]).text().trim().replace(/,/g, '')) || 0;
+            // 숫자 검증 및 파싱
+            const institutionalText2 = $(cells[1]).text().trim().replace(/,/g, '');
+            const foreignText2 = $(cells[2]).text().trim().replace(/,/g, '');
+            const individualText2 = $(cells[3]).text().trim().replace(/,/g, '');
+
+            const institutionalParsed2 = parseInt(institutionalText2.replace(/[^-\d]/g, ''), 10);
+            const foreignParsed2 = parseInt(foreignText2.replace(/[^-\d]/g, ''), 10);
+            const individualParsed2 = parseInt(individualText2.replace(/[^-\d]/g, ''), 10);
+
+            if (!isNaN(institutionalParsed2)) institutional = institutionalParsed2;
+            if (!isNaN(foreignParsed2)) foreign = foreignParsed2;
+            if (!isNaN(individualParsed2)) individual = individualParsed2;
           }
         }
       });
     }
 
-    // 데이터가 없으면 null 반환
+    // 데이터 검증: 실제로 0인 경우와 파싱 실패를 구분하기 어려우므로
+    // 최소한 하나라도 0이 아니면 유효한 데이터로 간주
+    // 단, 모든 값이 0이고 파싱이 실패했을 가능성도 있으므로 로깅
     if (institutional === 0 && foreign === 0 && individual === 0) {
+      console.warn(`All supply/demand values are zero for ${symbol} (may indicate parsing failure)`);
       return null;
     }
 
-    return {
+    // 합리성 검증: 세 값의 합이 비정상적으로 크거나 작지 않은지 확인
+    const total = Math.abs(institutional) + Math.abs(foreign) + Math.abs(individual);
+    if (total > 1e12) { // 1조 이상은 비정상적
+      console.warn(`Suspiciously large supply/demand values for ${symbol}: total=${total}`);
+    }
+
+    const responseTime = Date.now() - startTime;
+    const result = {
       institutional,
       foreign,
       individual,
     };
+    metrics.success(symbol, 'Naver Finance (Crawling)', responseTime);
+    return result;
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    metrics.error(symbol, 'Naver Finance (Crawling)', errorMessage);
     console.error(`Error fetching supply/demand for ${symbol}:`, error);
     return null;
   }

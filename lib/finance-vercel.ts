@@ -14,6 +14,8 @@ import type { StockData } from './finance';
 import { spawn } from 'child_process';
 import { join } from 'path';
 import { normalizeStockSymbol } from './korea-stock-mapper';
+import { validateStockData } from './data-validator';
+import { metrics } from './data-metrics';
 
 /**
  * Python 스크립트를 실행하여 주식 데이터 수집
@@ -106,6 +108,8 @@ async function runPythonScript(symbol: string, period: string = '1m'): Promise<a
  * @param period 분석 기간 (예: "1m", "3m", "1y")
  */
 export async function fetchStockDataVercel(symbol: string, period: string = '1m'): Promise<StockData> {
+  const startTime = Date.now();
+  
   try {
     let data: any;
 
@@ -124,21 +128,25 @@ export async function fetchStockDataVercel(symbol: string, period: string = '1m'
       data = await runPythonScript(symbol, period);
     }
     
-    // 응답을 StockData 형식으로 변환
-    return {
-      symbol: data.symbol,
-      price: data.price,
-      change: data.change,
-      changePercent: data.changePercent,
-      volume: data.volume,
-      rsi: data.rsi,
-      movingAverages: data.movingAverages,
-      disparity: data.disparity,
-      historicalData: data.historicalData,
-    };
+    // 응답을 StockData 형식으로 변환 및 검증
+    try {
+      const validatedData = await validateStockData(data);
+      const responseTime = Date.now() - startTime;
+      metrics.success(symbol, 'Python (Vercel)', responseTime, {
+        period,
+        historicalDataPoints: validatedData.historicalData.length,
+      });
+      return validatedData;
+    } catch (validationError) {
+      const errorMessage = validationError instanceof Error ? validationError.message : String(validationError);
+      metrics.error(symbol, 'Python (Vercel)', errorMessage, { period });
+      console.error(`[Data Validation] Failed to validate stock data for ${symbol}:`, errorMessage);
+      throw new Error(`Invalid stock data received: ${errorMessage}`);
+    }
   } catch (error) {
-    console.error(`Error fetching Python data for ${symbol}:`, error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+    metrics.error(symbol, 'Python (Vercel)', errorMessage);
+    console.error(`Error fetching Python data for ${symbol}:`, error);
     throw new Error(`Failed to fetch stock data for ${symbol}: ${errorMessage}`);
   }
 }

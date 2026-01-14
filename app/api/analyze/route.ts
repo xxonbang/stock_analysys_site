@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { startAlertMonitoring } from "@/lib/alert-system";
+
+// 알림 모니터링 시작 (서버 시작 시 한 번만)
+let monitoringStarted = false;
+if (!monitoringStarted && typeof window === "undefined") {
+  startAlertMonitoring(30000); // 30초마다 체크
+  monitoringStarted = true;
+}
 import {
   fetchStocksData,
   fetchExchangeRate,
@@ -292,12 +300,19 @@ export async function POST(request: NextRequest) {
     const apiKeys = getGeminiApiKeys();
     if (apiKeys.length === 0) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다." },
+        {
+          error:
+            "GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다.",
+        },
         { status: 500 }
       );
     }
-    
-    console.log(`[Gemini] ${apiKeys.length}개의 API 키 사용 가능 (Primary + ${apiKeys.length - 1}개 Fallback)`);
+
+    console.log(
+      `[Gemini] ${apiKeys.length}개의 API 키 사용 가능 (Primary + ${
+        apiKeys.length - 1
+      }개 Fallback)`
+    );
 
     // 배치로 모든 종목 데이터 수집
     // Python 스크립트 사용 가능하면 우선 사용 (로컬 테스트용)
@@ -335,8 +350,17 @@ export async function POST(request: NextRequest) {
           try {
             stockDataMap = await fetchStocksData(stocks);
           } catch (fallbackError) {
-            console.error("Fallback to yahoo-finance2 also failed:", fallbackError);
-            throw new Error(`모든 종목 데이터 수집에 실패했습니다: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+            console.error(
+              "Fallback to yahoo-finance2 also failed:",
+              fallbackError
+            );
+            throw new Error(
+              `모든 종목 데이터 수집에 실패했습니다: ${
+                fallbackError instanceof Error
+                  ? fallbackError.message
+                  : String(fallbackError)
+              }`
+            );
           }
         }
       } catch (error) {
@@ -347,8 +371,17 @@ export async function POST(request: NextRequest) {
         try {
           stockDataMap = await fetchStocksData(stocks);
         } catch (fallbackError) {
-          console.error("Fallback to yahoo-finance2 also failed:", fallbackError);
-          throw new Error(`모든 종목 데이터 수집에 실패했습니다: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+          console.error(
+            "Fallback to yahoo-finance2 also failed:",
+            fallbackError
+          );
+          throw new Error(
+            `모든 종목 데이터 수집에 실패했습니다: ${
+              fallbackError instanceof Error
+                ? fallbackError.message
+                : String(fallbackError)
+            }`
+          );
         }
       }
     } else {
@@ -426,7 +459,7 @@ export async function POST(request: NextRequest) {
         console.log(
           `Generating AI reports for ${stocksDataForAI.length} stocks in a single API call...`
         );
-        
+
         // Fallback 지원으로 Gemini API 호출
         aiReportsMap = await callGeminiWithFallback(
           async (genAI: GoogleGenerativeAI) => {

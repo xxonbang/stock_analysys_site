@@ -201,7 +201,7 @@ def fetch_stock(symbol: str, period: str = '1m'):
             'ma120': indicators['ma120'],
         },
         'disparity': round(disparity, 2),
-        'historicalData': historical_data[:10],  # 처음 10개만 출력
+        'historicalData': historical_data,  # 전체 historical 데이터 반환 (기술적 지표 계산에 필요)
     }
     
     return result
