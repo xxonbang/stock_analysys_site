@@ -9,7 +9,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 
-const KRX_API_BASE_URL = 'https://openapi.krx.co.kr/openapi/v2';
+// 실제 KRX API 엔드포인트 (캡처 이미지에서 확인)
+const KRX_API_BASE_URL = 'https://data-dbg.krx.co.kr/svc/apis';
+const KRX_STOCK_ENDPOINT = '/sto/stk_bydd_trd'; // 유가증권 일별매매정보
 const KRX_API_KEY = process.env.KRX_API_KEY || '';
 
 export async function GET(request: NextRequest) {
@@ -27,13 +29,11 @@ export async function GET(request: NextRequest) {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
     
-    // 일반적인 KRX API 엔드포인트 패턴 사용
-    const testUrl = `${KRX_API_BASE_URL}/stock/issu/daily-stat`;
+    // 실제 엔드포인트 및 파라미터 사용 (캡처 이미지 기반)
+    const testUrl = `${KRX_API_BASE_URL}${KRX_STOCK_ENDPOINT}`;
     const queryParams = new URLSearchParams({
       AUTH_KEY: KRX_API_KEY,
-      ISU_CD: '005930', // 삼성전자 (테스트용)
-      STD_DD: todayStr, // 기준일자
-      lang: 'kr',
+      basDd: todayStr, // 실제 API 파라미터명 (기준일자, string(8))
     });
 
     try {

@@ -24,7 +24,10 @@
 import axios from 'axios';
 import type { SupplyDemandData } from './finance';
 
-const KRX_API_BASE_URL = 'https://openapi.krx.co.kr/openapi/v2';
+// KRX API 실제 엔드포인트 (캡처 이미지에서 확인)
+const KRX_API_BASE_URL = 'https://data-dbg.krx.co.kr/svc/apis';
+const KRX_STOCK_ENDPOINT = '/sto/stk_bydd_trd'; // 유가증권 일별매매정보
+const KRX_ETF_ENDPOINT = '/etp/etf_bydd_trd'; // ETF 일별매매정보
 const KRX_API_KEY = process.env.KRX_API_KEY || '';
 
 /**
@@ -58,92 +61,79 @@ interface KRXStockTradingInfo {
 /**
  * 유가증권 일별매매정보 API 응답 인터페이스
  * 
- * KRX Open API 일반적인 응답 구조 기반
- * 실제 응답 구조가 다를 경우 자동으로 fallback 작동
+ * 실제 API 명세서 기반 (캡처 이미지에서 확인)
+ * OutBlock_1 (Block, repeat: multi) 구조
  */
 interface KRXStockDailyTradingInfo {
-  // 공통 필드 (KRX API 일반 패턴)
+  // 기준일자 및 종목 정보
+  BAS_DD?: string; // 기준일자 (YYYYMMDD) - 실제 API 필드명
   ISU_CD?: string; // 종목코드
-  isuCd?: string; // 종목코드 (소문자 변형)
   ISU_NM?: string; // 종목명
-  isuNm?: string; // 종목명 (소문자 변형)
-  STD_DD?: string; // 기준일자 (YYYYMMDD)
-  trdDd?: string; // 거래일자 (YYYYMMDD)
-  stdDd?: string; // 기준일자 (소문자 변형)
+  MKT_NM?: string; // 시장구분 (KOSPI, KOSDAQ 등)
+  SECT_TP_NM?: string; // 소속부
   
   // 가격 정보
   TDD_CLSPRC?: string; // 종가
-  clpr?: string; // 종가 (소문자 변형)
   CMPPREVDD_PRC?: string; // 대비
-  vs?: string; // 전일 대비 (소문자 변형)
   FLUC_RT?: string; // 등락률
-  fltRt?: string; // 등락률 (소문자 변형)
   TDD_OPNPRC?: string; // 시가
-  mkp?: string; // 시가 (소문자 변형)
   TDD_HGPRC?: string; // 고가
-  hipr?: string; // 고가 (소문자 변형)
   TDD_LWPRC?: string; // 저가
-  lopr?: string; // 저가 (소문자 변형)
   
   // 거래 정보
   ACC_TRDVOL?: string; // 거래량
-  trqu?: string; // 거래량 (소문자 변형)
   ACC_TRDVAL?: string; // 거래대금
-  trPrc?: string; // 거래대금 (소문자 변형)
   MKTCAP?: string; // 시가총액
   LIST_SHRS?: string; // 상장주식수
   
-  // 투자자별 매매동향 (별도 API일 수 있음)
-  INSTI_BY_QTY?: string; // 기관 순매수량
-  FRGN_BY_QTY?: string; // 외국인 순매수량
-  PRSN_INBY_QTY?: string; // 개인 순매수량
-  instiByQty?: string; // 기관 순매수량 (소문자 변형)
-  frgnByQty?: string; // 외국인 순매수량 (소문자 변형)
-  prsnInByQty?: string; // 개인 순매수량 (소문자 변형)
+  // 투자자별 매매동향 (실제 API 응답에 포함되지 않음 - 별도 API 필요)
+  // ⚠️ 캡처 이미지의 OUTPUT 정보에 투자자별 필드가 없음
+  // 네이버 크롤링 fallback 사용 필요
+  INSTI_BY_QTY?: string; // 기관 순매수량 (별도 API)
+  FRGN_BY_QTY?: string; // 외국인 순매수량 (별도 API)
+  PRSN_INBY_QTY?: string; // 개인 순매수량 (별도 API)
   
-  // 기타 필드 (실제 응답에 따라 추가 가능)
+  // 하위 호환성을 위한 필드명 변형 지원
+  STD_DD?: string; // 기준일자 (하위 호환)
   [key: string]: any;
 }
 
 /**
  * ETF 일별매매정보 API 응답 인터페이스
  * 
- * KRX Open API 일반적인 응답 구조 기반
- * 실제 응답 구조가 다를 경우 자동으로 fallback 작동
+ * 실제 API 명세서 기반 (캡처 이미지에서 확인)
+ * OutBlock_1 (Block, repeat: multi) 구조
  */
 interface KRXETFDailyTradingInfo {
-  // 공통 필드 (KRX API 일반 패턴)
+  // 기준일자 및 종목 정보
+  BAS_DD?: string; // 기준일자 (YYYYMMDD) - 실제 API 필드명
   ISU_CD?: string; // 종목코드
-  isuCd?: string; // 종목코드 (소문자 변형)
   ISU_NM?: string; // 종목명
-  isuNm?: string; // 종목명 (소문자 변형)
-  STD_DD?: string; // 기준일자 (YYYYMMDD)
-  trdDd?: string; // 거래일자 (YYYYMMDD)
-  stdDd?: string; // 기준일자 (소문자 변형)
   
   // 가격 정보
   TDD_CLSPRC?: string; // 종가
-  clpr?: string; // 종가 (소문자 변형)
   CMPPREVDD_PRC?: string; // 대비
-  vs?: string; // 전일 대비 (소문자 변형)
   FLUC_RT?: string; // 등락률
-  fltRt?: string; // 등락률 (소문자 변형)
+  NAV?: string; // 순자산가치(NAV) - ETF 전용
   TDD_OPNPRC?: string; // 시가
-  mkp?: string; // 시가 (소문자 변형)
   TDD_HGPRC?: string; // 고가
-  hipr?: string; // 고가 (소문자 변형)
   TDD_LWPRC?: string; // 저가
-  lopr?: string; // 저가 (소문자 변형)
   
   // 거래 정보
   ACC_TRDVOL?: string; // 거래량
-  trqu?: string; // 거래량 (소문자 변형)
   ACC_TRDVAL?: string; // 거래대금
-  trPrc?: string; // 거래대금 (소문자 변형)
   MKTCAP?: string; // 시가총액
-  LIST_SHRS?: string; // 상장주식수
+  INVSTASST_NETASST_TOT?: string; // 순자산총액 - ETF 전용
+  LIST_SHRS?: string; // 상장좌수
   
-  // 기타 필드 (실제 응답에 따라 추가 가능)
+  // 기초지수 정보 (ETF 전용)
+  IDX_IND_NM?: string; // 기초지수_지수명
+  OBJ_STKPRC_IDX?: string; // 기초지수_종가
+  CMPPREVDD_IDX?: string; // 기초지수_대비
+  FLUC_RT_IDX?: string; // 기초지수_등락률
+  
+  // 하위 호환성을 위한 필드명 변형 지원
+  STD_DD?: string; // 기준일자 (하위 호환)
   [key: string]: any;
 }
 
@@ -172,11 +162,14 @@ async function krxRequest<T>(
     throw new Error('KRX_API_KEY가 설정되지 않았습니다. 환경 변수에 KRX_API_KEY를 설정해주세요.');
   }
 
+  // 실제 API 엔드포인트 URL 구성
   const url = `${KRX_API_BASE_URL}${endpoint}`;
+  
+  // 실제 API 파라미터 구조 (캡처 이미지에서 확인)
+  // InBlock_1 구조로 전달해야 하며, basDd (기준일자) 파라미터 사용
   const queryParams = new URLSearchParams({
-    ...params,
     AUTH_KEY: KRX_API_KEY,
-    lang: 'kr',
+    ...params,
   });
 
   try {
@@ -271,13 +264,12 @@ export async function fetchKoreaSupplyDemandKRX(
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
     
     // 유가증권 일별매매정보 API 호출
-    // 일반적인 KRX API 엔드포인트 패턴 사용
-    // 실제 구조가 다를 경우 오류 발생 시 자동 fallback
+    // 실제 엔드포인트: /sto/stk_bydd_trd
+    // 실제 파라미터: basDd (기준일자, string(8))
     const tradingInfo = await krxRequest<KRXStockDailyTradingInfo>(
-      '/stock/issu/daily-stat', // 일반적인 KRX API 패턴
+      KRX_STOCK_ENDPOINT,
       {
-        ISU_CD: symbol,
-        STD_DD: todayStr,
+        basDd: todayStr, // 실제 API 파라미터명
       }
     );
 
@@ -285,10 +277,9 @@ export async function fetchKoreaSupplyDemandKRX(
       // 어제 데이터로 재시도
       const yesterdayStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
       const tradingInfoYesterday = await krxRequest<KRXStockDailyTradingInfo>(
-        '/stock/issu/daily-stat',
+        KRX_STOCK_ENDPOINT,
         {
-          ISU_CD: symbol,
-          STD_DD: yesterdayStr,
+          basDd: yesterdayStr, // 실제 API 파라미터명
         }
       );
 
@@ -299,45 +290,18 @@ export async function fetchKoreaSupplyDemandKRX(
 
       const data = tradingInfoYesterday[0];
       
-      // 투자자별 매매동향 데이터 추출 (다양한 필드명 지원)
-      const instiQty = data.INSTI_BY_QTY || data.instiByQty;
-      const frgnQty = data.FRGN_BY_QTY || data.frgnByQty;
-      const prsnQty = data.PRSN_INBY_QTY || data.prsnInByQty;
-      
-      if (instiQty && frgnQty && prsnQty) {
-        return {
-          institutional: parseInt(String(instiQty).replace(/,/g, '')) || 0,
-          foreign: parseInt(String(frgnQty).replace(/,/g, '')) || 0,
-          individual: parseInt(String(prsnQty).replace(/,/g, '')) || 0,
-        };
-      } else {
-        // 투자자별 정보가 별도 API인 경우
-        console.warn(`[KRX API] Investor trading data not found in daily trading info for ${symbol}, falling back to Naver`);
-        return null;
-      }
-    }
-
-    const data = tradingInfo[0];
-    
-    // 투자자별 매매동향 데이터 추출 (다양한 필드명 지원)
-    const instiQty = data.INSTI_BY_QTY || data.instiByQty;
-    const frgnQty = data.FRGN_BY_QTY || data.frgnByQty;
-    const prsnQty = data.PRSN_INBY_QTY || data.prsnInByQty;
-    
-    if (instiQty && frgnQty && prsnQty) {
-      const result = {
-        institutional: parseInt(String(instiQty).replace(/,/g, '')) || 0,
-        foreign: parseInt(String(frgnQty).replace(/,/g, '')) || 0,
-        individual: parseInt(String(prsnQty).replace(/,/g, '')) || 0,
-      };
-      const responseTime = Date.now() - startTime;
-      metrics.success(symbol, 'KRX API', responseTime);
-      return result;
-    } else {
-      // 투자자별 정보가 없는 경우
-      console.warn(`[KRX API] Investor trading data not found in daily trading info for ${symbol}, falling back to Naver`);
+      // ⚠️ 실제 API 응답에 투자자별 매매동향 필드가 포함되지 않음 (캡처 이미지 확인)
+      // OUTPUT 정보에 INSTI_BY_QTY, FRGN_BY_QTY, PRSN_INBY_QTY 필드가 없음
+      // 네이버 크롤링으로 fallback
+      console.warn(`[KRX API] Investor trading data not available in daily trading info API for ${symbol}, falling back to Naver`);
       return null;
     }
+
+    // ⚠️ 실제 API 응답에 투자자별 매매동향 필드가 포함되지 않음 (캡처 이미지 확인)
+    // OUTPUT 정보에 INSTI_BY_QTY, FRGN_BY_QTY, PRSN_INBY_QTY 필드가 없음
+    // 네이버 크롤링으로 fallback
+    console.warn(`[KRX API] Investor trading data not available in daily trading info API for ${symbol}, falling back to Naver`);
+    return null;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     metrics.error(symbol, 'KRX API', errorMessage);
@@ -377,11 +341,12 @@ export async function fetchKoreaStockInfoKRX(symbol: string): Promise<{
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
     
+    // 실제 엔드포인트: /sto/stk_bydd_trd
+    // 실제 파라미터: basDd (기준일자, string(8))
     const stockInfo = await krxRequest<KRXStockDailyTradingInfo>(
-      '/stock/issu/daily-stat', // 일반적인 KRX API 패턴
+      KRX_STOCK_ENDPOINT,
       {
-        ISU_CD: symbol,
-        STD_DD: todayStr,
+        basDd: todayStr, // 실제 API 파라미터명
       }
     );
 
@@ -392,10 +357,9 @@ export async function fetchKoreaStockInfoKRX(symbol: string): Promise<{
       const yesterdayStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
       
       const stockInfoYesterday = await krxRequest<KRXStockDailyTradingInfo>(
-        '/stock/issu/daily-stat',
+        KRX_STOCK_ENDPOINT,
         {
-          ISU_CD: symbol,
-          STD_DD: yesterdayStr,
+          basDd: yesterdayStr, // 실제 API 파라미터명
         }
       );
 
@@ -405,12 +369,12 @@ export async function fetchKoreaStockInfoKRX(symbol: string): Promise<{
 
       const data = stockInfoYesterday[0];
       
-      // 다양한 필드명 지원 (대소문자 변형)
-      const name = data.ISU_NM || data.isuNm || '';
-      const closePrice = data.TDD_CLSPRC || data.clpr || '0';
-      const change = data.CMPPREVDD_PRC || data.vs || '0';
-      const changePercent = data.FLUC_RT || data.fltRt || '0';
-      const volume = data.ACC_TRDVOL || data.trqu || '0';
+      // 실제 API 필드명 사용 (캡처 이미지 기반)
+      const name = data.ISU_NM || '';
+      const closePrice = data.TDD_CLSPRC || '0';
+      const change = data.CMPPREVDD_PRC || '0';
+      const changePercent = data.FLUC_RT || '0';
+      const volume = data.ACC_TRDVOL || '0';
       
       return {
         name,
@@ -423,12 +387,12 @@ export async function fetchKoreaStockInfoKRX(symbol: string): Promise<{
 
     const data = stockInfo[0];
     
-    // 다양한 필드명 지원 (대소문자 변형)
-    const name = data.ISU_NM || data.isuNm || '';
-    const closePrice = data.TDD_CLSPRC || data.clpr || '0';
-    const change = data.CMPPREVDD_PRC || data.vs || '0';
-    const changePercent = data.FLUC_RT || data.fltRt || '0';
-    const volume = data.ACC_TRDVOL || data.trqu || '0';
+    // 실제 API 필드명 사용 (캡처 이미지 기반)
+    const name = data.ISU_NM || '';
+    const closePrice = data.TDD_CLSPRC || '0';
+    const change = data.CMPPREVDD_PRC || '0';
+    const changePercent = data.FLUC_RT || '0';
+    const volume = data.ACC_TRDVOL || '0';
     
     return {
       name,
@@ -467,11 +431,12 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0].replace(/-/g, '');
     
+    // 실제 엔드포인트: /etp/etf_bydd_trd
+    // 실제 파라미터: basDd (기준일자, string(8))
     const etfInfo = await krxRequest<KRXETFDailyTradingInfo>(
-      '/etf/issu/daily-stat', // 일반적인 KRX API 패턴
+      KRX_ETF_ENDPOINT,
       {
-        ISU_CD: symbol,
-        STD_DD: todayStr,
+        basDd: todayStr, // 실제 API 파라미터명
       }
     );
 
@@ -482,10 +447,9 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       const yesterdayStr = yesterday.toISOString().split('T')[0].replace(/-/g, '');
       
       const etfInfoYesterday = await krxRequest<KRXETFDailyTradingInfo>(
-        '/etf/issu/daily-stat',
+        KRX_ETF_ENDPOINT,
         {
-          ISU_CD: symbol,
-          STD_DD: yesterdayStr,
+          basDd: yesterdayStr, // 실제 API 파라미터명
         }
       );
 
@@ -495,12 +459,12 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
 
       const data = etfInfoYesterday[0];
       
-      // 다양한 필드명 지원 (대소문자 변형)
-      const name = data.ISU_NM || data.isuNm || '';
-      const closePrice = data.TDD_CLSPRC || data.clpr || '0';
-      const change = data.CMPPREVDD_PRC || data.vs || '0';
-      const changePercent = data.FLUC_RT || data.fltRt || '0';
-      const volume = data.ACC_TRDVOL || data.trqu || '0';
+      // 실제 API 필드명 사용 (캡처 이미지 기반)
+      const name = data.ISU_NM || '';
+      const closePrice = data.TDD_CLSPRC || '0';
+      const change = data.CMPPREVDD_PRC || '0';
+      const changePercent = data.FLUC_RT || '0';
+      const volume = data.ACC_TRDVOL || '0';
       
       return {
         name,
@@ -513,12 +477,12 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
 
     const data = etfInfo[0];
     
-    // 다양한 필드명 지원 (대소문자 변형)
-    const name = data.ISU_NM || data.isuNm || '';
-    const closePrice = data.TDD_CLSPRC || data.clpr || '0';
-    const change = data.CMPPREVDD_PRC || data.vs || '0';
-    const changePercent = data.FLUC_RT || data.fltRt || '0';
-    const volume = data.ACC_TRDVOL || data.trqu || '0';
+    // 실제 API 필드명 사용 (캡처 이미지 기반)
+    const name = data.ISU_NM || '';
+    const closePrice = data.TDD_CLSPRC || '0';
+    const change = data.CMPPREVDD_PRC || '0';
+    const changePercent = data.FLUC_RT || '0';
+    const volume = data.ACC_TRDVOL || '0';
     
     return {
       name,
