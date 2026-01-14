@@ -7,6 +7,7 @@ import {
   fetchNews,
 } from "@/lib/finance-adapter";
 import { fetchKoreaSupplyDemand } from "@/lib/finance";
+import { callGeminiWithFallback, getGeminiApiKeys } from "@/lib/gemini-client";
 import type {
   AnalyzeRequest,
   AnalyzeResponse,
@@ -287,15 +288,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
+    // Gemini API 키 확인 (fallback 지원)
+    const apiKeys = getGeminiApiKeys();
+    if (apiKeys.length === 0) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY가 설정되지 않았습니다." },
+        { error: "GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다." },
         { status: 500 }
       );
     }
-
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    
+    console.log(`[Gemini] ${apiKeys.length}개의 API 키 사용 가능 (Primary + ${apiKeys.length - 1}개 Fallback)`);
 
     // 배치로 모든 종목 데이터 수집
     // Python 스크립트 사용 가능하면 우선 사용 (로컬 테스트용)
@@ -416,7 +418,7 @@ export async function POST(request: NextRequest) {
       stocksDataForAI.push({ symbol, marketData });
     }
 
-    // 모든 종목의 데이터를 모아서 한 번에 AI 리포트 생성 (단 1회 Gemini API 호출)
+    // 모든 종목의 데이터를 모아서 한 번에 AI 리포트 생성 (단 1회 Gemini API 호출, fallback 지원)
     let aiReportsMap = new Map<string, string>();
 
     if (stocksDataForAI.length > 0) {
@@ -424,10 +426,17 @@ export async function POST(request: NextRequest) {
         console.log(
           `Generating AI reports for ${stocksDataForAI.length} stocks in a single API call...`
         );
-        aiReportsMap = await generateAIReportsBatch(
-          stocksDataForAI,
-          periodKorean,
-          genAI
+        
+        // Fallback 지원으로 Gemini API 호출
+        aiReportsMap = await callGeminiWithFallback(
+          async (genAI: GoogleGenerativeAI) => {
+            return await generateAIReportsBatch(
+              stocksDataForAI,
+              periodKorean,
+              genAI
+            );
+          },
+          { model: "gemini-2.5-flash" }
         );
       } catch (error) {
         console.error("Failed to generate AI reports:", error);

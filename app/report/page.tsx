@@ -15,9 +15,16 @@ export default function ReportPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // sessionStorage는 클라이언트 사이드에서만 사용 가능
+    if (typeof window === 'undefined') {
+      setIsLoading(false);
+      return;
+    }
+
     const stored = sessionStorage.getItem('analysisResults');
     if (!stored) {
       router.push('/');
+      setIsLoading(false);
       return;
     }
 
@@ -46,16 +53,19 @@ export default function ReportPage() {
   }, [results.length]); // results.length만 의존성으로 사용 (무한 루프 방지)
 
   if (isLoading) {
-    const stored = sessionStorage.getItem('analysisResults');
+    // sessionStorage는 클라이언트 사이드에서만 사용 가능
     let periodText = '데이터를';
-    if (stored) {
-      try {
-        const data: AnalyzeResponse = JSON.parse(stored);
-        if (data.results && data.results.length > 0 && data.results[0].period) {
-          periodText = `${data.results[0].period} 동안의 데이터를`;
+    if (typeof window !== 'undefined') {
+      const stored = sessionStorage.getItem('analysisResults');
+      if (stored) {
+        try {
+          const data: AnalyzeResponse = JSON.parse(stored);
+          if (data.results && data.results.length > 0 && data.results[0].period) {
+            periodText = `${data.results[0].period} 동안의 데이터를`;
+          }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore
       }
     }
     

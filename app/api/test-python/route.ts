@@ -5,12 +5,15 @@ import { join } from 'path';
 /**
  * Python 스크립트를 직접 실행하는 테스트 API
  * child_process를 사용하여 서버 없이 Python 실행
+ * 
+ * ⚠️ 개발/디버깅 전용 API입니다.
+ * 프로덕션 환경에서는 사용하지 않습니다.
  */
-export async function GET(request: NextRequest) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get('symbol') || 'AAPL';
 
-  return new Promise((resolve, reject) => {
+  return new Promise<NextResponse>((resolve) => {
     const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
     const pythonProcess = spawn('python3', [scriptPath, symbol]);
 
