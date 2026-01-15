@@ -96,6 +96,14 @@ export function IndicatorInfoButton({ indicatorKey }: IndicatorInfoButtonProps) 
                   {description.calculationMethod}
                 </div>
               </div>
+              {description.investmentSignal && (
+                <div className="border-t pt-4">
+                  <h3 className="font-semibold text-gray-900 mb-2">투자 신호 및 정보</h3>
+                  <div className="whitespace-pre-line leading-relaxed">
+                    {description.investmentSignal}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </DialogContent>
