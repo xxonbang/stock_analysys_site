@@ -25,6 +25,8 @@ export default function HomePage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [stocks, setStocks] = useState<string[]>([""]);
+  // 종목명 -> 심볼 매핑 (분석 시 심볼로 변환하기 위해 사용)
+  const [stockSymbolMap, setStockSymbolMap] = useState<Map<string, string>>(new Map());
   const [period, setPeriod] = useState<AnalysisPeriod>("1m"); // 향후 전망 분석 기간
   const [historicalPeriod, setHistoricalPeriod] =
     useState<AnalysisPeriod>("3m"); // 과거 이력 분석 기간
@@ -59,14 +61,31 @@ export default function HomePage() {
 
   const removeStockInput = (index: number) => {
     if (stocks.length > 1) {
-      setStocks(stocks.filter((_, i) => i !== index));
+      const removedStock = stocks[index];
+      const newStocks = stocks.filter((_, i) => i !== index);
+      setStocks(newStocks);
+      
+      // 삭제된 종목의 심볼 매핑도 제거
+      if (removedStock && stockSymbolMap.has(removedStock)) {
+        const newMap = new Map(stockSymbolMap);
+        newMap.delete(removedStock);
+        setStockSymbolMap(newMap);
+      }
     }
   };
 
   const updateStock = (index: number, value: string) => {
     const newStocks = [...stocks];
+    const oldValue = newStocks[index];
     newStocks[index] = value;
     setStocks(newStocks);
+    
+    // 사용자가 직접 입력한 경우 심볼 매핑 제거 (자동완성 선택이 아닌 경우)
+    if (oldValue && stockSymbolMap.has(oldValue)) {
+      const newMap = new Map(stockSymbolMap);
+      newMap.delete(oldValue);
+      setStockSymbolMap(newMap);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -96,8 +115,77 @@ export default function HomePage() {
     setIsLoading(true);
 
     try {
+      // 종목명을 심볼로 변환
+      const convertToSymbols = async (stockNames: string[]): Promise<{ symbols: string[]; nameMap: Map<string, string> }> => {
+        const symbols: string[] = [];
+        const nameMap = new Map<string, string>(); // 심볼 -> 종목명 매핑 (API 응답에 종목명 추가용)
+        
+        for (const name of stockNames) {
+          // 이미 매핑된 심볼이 있으면 사용
+          if (stockSymbolMap.has(name)) {
+            const symbol = stockSymbolMap.get(name)!;
+            symbols.push(symbol);
+            nameMap.set(symbol, name);
+            continue;
+          }
+          
+          // 매핑이 없으면 종목명으로 검색하여 심볼 찾기
+          try {
+            const { searchStocks } = await import("@/lib/stock-search");
+            const results = await searchStocks(name);
+            
+            if (results.length > 0) {
+              // 첫 번째 결과의 심볼 사용
+              const symbol = results[0].symbol;
+              const matchedName = results[0].name; // 검색 결과의 정확한 종목명 사용
+              symbols.push(symbol);
+              nameMap.set(symbol, matchedName);
+              
+              // 매핑 저장
+              const newMap = new Map(stockSymbolMap);
+              newMap.set(name, symbol);
+              setStockSymbolMap(newMap);
+            } else {
+              // 검색 결과가 없으면 입력값 그대로 사용 (사용자가 직접 심볼을 입력한 경우)
+              symbols.push(name);
+              nameMap.set(name, name); // 심볼과 동일하게 설정
+            }
+          } catch (error) {
+            console.warn(`Failed to convert "${name}" to symbol:`, error);
+            // 변환 실패 시 입력값 그대로 사용
+            symbols.push(name);
+            nameMap.set(name, name);
+          }
+        }
+        
+        return { symbols, nameMap };
+      };
+      
+      const { symbols: stockSymbols, nameMap: symbolToNameMap } = await convertToSymbols(validStocks);
+      
+      // 검색 결과가 없는 종목이 있는지 확인
+      const hasInvalidStocks = stockSymbols.some((symbol, index) => {
+        const originalName = validStocks[index];
+        // 검색 결과가 없고, 원본 입력값과 심볼이 동일한 경우 (직접 심볼 입력이 아닌 경우)
+        return !stockSymbolMap.has(originalName) && symbol === originalName && originalName.trim().length > 0;
+      });
+      
+      if (hasInvalidStocks) {
+        const invalidNames = validStocks.filter((name, index) => {
+          const symbol = stockSymbols[index];
+          return !stockSymbolMap.has(name) && symbol === name && name.trim().length > 0;
+        });
+        sessionStorage.setItem("analysisResults", JSON.stringify({ 
+          error: `다음 종목을 찾을 수 없습니다: ${invalidNames.join(', ')}. 정확한 종목명 또는 종목코드를 입력해주세요.`, 
+          results: [] 
+        }));
+        router.push("/report");
+        setIsLoading(false);
+        return;
+      }
+      
       const request: AnalyzeRequest = {
-        stocks: validStocks,
+        stocks: stockSymbols,
         period,
         historicalPeriod,
         analysisDate,
@@ -130,8 +218,20 @@ export default function HomePage() {
       const data = await response.json();
 
       // 응답 데이터 검증
+      if (data.error) {
+        // 오류가 있으면 sessionStorage에 저장하고 리포트 페이지로 이동 (오류 표시용)
+        sessionStorage.setItem("analysisResults", JSON.stringify({ error: data.error, results: [] }));
+        router.push("/report");
+        setIsLoading(false);
+        return;
+      }
+
       if (!data || !data.results || data.results.length === 0) {
-        throw new Error("분석 결과가 없습니다. 다시 시도해주세요.");
+        // 결과가 없으면 오류로 처리
+        sessionStorage.setItem("analysisResults", JSON.stringify({ error: "분석 결과가 없습니다. 입력하신 종목을 확인해주세요.", results: [] }));
+        router.push("/report");
+        setIsLoading(false);
+        return;
       }
 
       // 실제 소요 시간 메타데이터를 로컬 스토리지에 저장 (다음 분석 시 진행률 계산에 활용)
@@ -145,8 +245,25 @@ export default function HomePage() {
         }
       }
 
+      // 종목명 매핑을 결과에 추가 (symbolToNameMap 사용)
+      const resultsWithNames = data.results.map((result: any) => {
+        // symbolToNameMap에서 종목명 찾기 (가장 정확)
+        if (symbolToNameMap.has(result.symbol)) {
+          return { ...result, name: symbolToNameMap.get(result.symbol) };
+        }
+        // 없으면 stockSymbolMap에서 찾기
+        for (const [name, symbol] of stockSymbolMap.entries()) {
+          if (symbol === result.symbol) {
+            return { ...result, name };
+          }
+        }
+        return result;
+      });
+      
+      const dataWithNames = { ...data, results: resultsWithNames };
+      
       // 결과를 sessionStorage에 저장하고 리포트 페이지로 이동
-      sessionStorage.setItem("analysisResults", JSON.stringify(data));
+      sessionStorage.setItem("analysisResults", JSON.stringify(dataWithNames));
       router.push("/report");
     } catch (error) {
       console.error("Analysis error:", error);
@@ -207,7 +324,11 @@ export default function HomePage() {
                     value={stock}
                     onChange={(value) => updateStock(index, value)}
                     onSelect={(suggestion) => {
-                      updateStock(index, suggestion.symbol);
+                      // 종목명으로 저장하고, 심볼 매핑도 함께 저장
+                      updateStock(index, suggestion.name);
+                      const newMap = new Map(stockSymbolMap);
+                      newMap.set(suggestion.name, suggestion.symbol);
+                      setStockSymbolMap(newMap);
                     }}
                     disabled={isLoading}
                     placeholder="종목 입력"

@@ -45,15 +45,15 @@ export function Navigation() {
   return (
     <>
       <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 py-2 sm:py-3">
-          <div className="flex items-center justify-between">
+        <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 xl:px-12 py-2 sm:py-3">
+          <div className="flex items-center justify-between max-w-[1920px] mx-auto">
             <Link
               href="/"
               className="text-lg sm:text-xl font-bold text-gray-900"
             >
               📈 종목어때.ai
             </Link>
-            <div className="flex items-center gap-1.5 sm:gap-4 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center gap-3 sm:gap-6 lg:gap-8 flex-wrap sm:flex-nowrap">
               {isAuthenticated ? (
                 <>
                   <Link

@@ -34,8 +34,10 @@ export interface AnalyzeRequest {
  */
 export interface AnalyzeResult {
   symbol: string;
+  name?: string; // 종목명 (표시용)
   period?: string; // 향후 전망 분석 기간 (한국어)
   historicalPeriod?: string; // 과거 이력 분석 기간 (한국어)
+  selectedIndicators?: AnalyzeRequest['indicators']; // 선택된 지표 정보 (일반 종목에서 ETF 괴리율 선택 시 메시지 표시용)
   marketData: {
     price: number;
     change: number;
@@ -82,10 +84,11 @@ export interface AnalyzeResult {
       volatilityRank: 'low' | 'medium' | 'high';
     };
     volumeIndicators?: {
-      averageVolume: number;
-      volumeRatio: number;
-      isHighVolume: boolean;
-      volumeTrend: 'increasing' | 'decreasing' | 'stable';
+      currentVolume: number; // 현재 거래량 (최신)
+      averageVolume: number; // 평균 거래량 (최근 20일)
+      volumeRatio: number; // 현재 거래량 / 평균 거래량
+      isHighVolume: boolean; // 고거래량 여부 (1.5배 이상)
+      volumeTrend: 'increasing' | 'decreasing' | 'stable'; // 거래량 추세
     };
     // Phase 2 지표
     supportLevel?: {

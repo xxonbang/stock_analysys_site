@@ -11,6 +11,7 @@ import { PriceChart } from '@/components/charts/price-chart';
 import { VolumeChart } from '@/components/charts/volume-chart';
 import { RSIChart } from '@/components/charts/rsi-chart';
 import { transformToChartData } from '@/lib/chart-utils';
+import { IndicatorInfoButton } from '@/components/indicator-info-button';
 
 export default function ReportPage() {
   const router = useRouter();
@@ -35,6 +36,14 @@ export default function ReportPage() {
 
     try {
       const data: AnalyzeResponse = JSON.parse(stored);
+      
+      // API 오류가 있으면 표시
+      if (data.error) {
+        setResults([]);
+        setIsLoading(false);
+        return;
+      }
+      
       if (data.results && data.results.length > 0) {
         setResults(data.results);
         setSelectedIndex(0); // 결과가 로드되면 첫 번째 종목으로 리셋
@@ -43,12 +52,15 @@ export default function ReportPage() {
         if (data.results[0].period) {
           setPeriodText(`${data.results[0].period} 동안의 데이터를`);
         }
+        
+        // 스크롤을 최상단으로 이동
+        window.scrollTo({ top: 0, behavior: 'instant' });
       } else {
-        router.push('/');
+        setResults([]);
       }
     } catch (error) {
       console.error('Failed to parse results:', error);
-      router.push('/');
+      setResults([]);
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +87,8 @@ export default function ReportPage() {
     if (!currentResult?.historicalData || currentResult.historicalData.length === 0) {
       return null;
     }
-    return transformToChartData(currentResult);
+    // marketData.volume을 전달하여 최신 거래량과 차트 데이터 일치시키기
+    return transformToChartData(currentResult, currentResult.marketData?.volume);
   }, [currentResult]);
 
   if (isLoading) {
@@ -95,15 +108,63 @@ export default function ReportPage() {
   }
 
   if (results.length === 0) {
+    // sessionStorage에서 오류 메시지 확인
+    let errorMessage = '분석 결과가 없습니다.';
+    try {
+      const stored = sessionStorage.getItem('analysisResults');
+      if (stored) {
+        const data: AnalyzeResponse = JSON.parse(stored);
+        if (data.error) {
+          errorMessage = data.error;
+        }
+      }
+    } catch (e) {
+      // 무시
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-        <div className="container mx-auto px-4 py-12 max-w-6xl">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-gray-600">분석 결과가 없습니다.</p>
-              <Button onClick={() => router.push('/')} className="mt-4 w-full">
-                다시 분석하기
-              </Button>
+        <div className="container mx-auto px-4 py-6 sm:py-12 max-w-6xl">
+          <Card className="border-red-200 bg-red-50/50">
+            <CardHeader>
+              <CardTitle className="text-red-700 flex items-center gap-2">
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                분석 오류
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-white rounded-lg border border-red-200">
+                <p className="text-red-700 font-medium mb-2">오류 내용:</p>
+                <p className="text-gray-800 text-sm leading-relaxed">{errorMessage}</p>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button 
+                  onClick={() => router.push('/')} 
+                  className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
+                >
+                  다시 분석하기
+                </Button>
+                <Button 
+                  onClick={() => router.back()} 
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                >
+                  이전 페이지로
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -177,7 +238,7 @@ export default function ReportPage() {
                   : 'bg-white text-gray-700 hover:bg-gray-100'
               }`}
             >
-              <span className="block sm:inline">{result.symbol}</span>
+              <span className="block sm:inline">{result.name || result.symbol}</span>
               {(result.period || result.historicalPeriod) && (
                 <span className="ml-1 sm:ml-2 text-xs opacity-75 hidden sm:inline">
                   {result.historicalPeriod && `과거: ${result.historicalPeriod}`}
@@ -194,7 +255,10 @@ export default function ReportPage() {
           {/* 현재가 */}
           <Card>
             <CardHeader className="pb-2 sm:pb-3">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">현재가</CardTitle>
+              <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                💰 현재가
+                <IndicatorInfoButton indicatorKey="price" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xl sm:text-2xl font-bold">
@@ -217,7 +281,10 @@ export default function ReportPage() {
           {marketData.rsi !== undefined && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">RSI(14)</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📈 RSI(14)
+                  <IndicatorInfoButton indicatorKey="rsi" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">{marketData.rsi}</div>
@@ -230,7 +297,10 @@ export default function ReportPage() {
           {marketData.movingAverages && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">이동평균선</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📉 이동평균선
+                  <IndicatorInfoButton indicatorKey="movingAverages" />
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>5일: {marketData.movingAverages.ma5.toLocaleString()}</div>
@@ -245,7 +315,10 @@ export default function ReportPage() {
           {marketData.disparity !== undefined && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">이격도 (20일 기준)</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📏 이격도 (20일 기준)
+                  <IndicatorInfoButton indicatorKey="disparity" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">{marketData.disparity}%</div>
@@ -264,7 +337,10 @@ export default function ReportPage() {
           {marketData.supplyDemand && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">수급 (주)</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  🔄 수급 (주)
+                  <IndicatorInfoButton indicatorKey="supplyDemand" />
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>
@@ -312,7 +388,10 @@ export default function ReportPage() {
           {marketData.vix !== undefined && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">VIX 지수</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  😰 VIX 지수
+                  <IndicatorInfoButton indicatorKey="fearGreed" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">{marketData.vix.toFixed(2)}</div>
@@ -327,7 +406,10 @@ export default function ReportPage() {
           {marketData.exchangeRate && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">환율 (USD/KRW)</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  💱 환율 (USD/KRW)
+                  <IndicatorInfoButton indicatorKey="exchangeRate" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">
@@ -339,25 +421,36 @@ export default function ReportPage() {
 
           {/* Phase 1 지표 */}
           {/* ETF 괴리율 */}
-          {marketData.etfPremium && (
+          {(marketData.etfPremium || (currentResult.selectedIndicators?.etfPremium && !marketData.etfPremium)) && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">ETF 괴리율</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📊 ETF 괴리율
+                  <IndicatorInfoButton indicatorKey="etfPremium" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-xl sm:text-2xl font-bold">
-                  {marketData.etfPremium.premium >= 0 ? '+' : ''}
-                  {marketData.etfPremium.premium}%
-                </div>
-                <div className={`text-xs sm:text-sm mt-1 ${
-                  marketData.etfPremium.isPremium ? 'text-red-600' : 
-                  marketData.etfPremium.isDiscount ? 'text-blue-600' : 
-                  'text-gray-600'
-                }`}>
-                  {marketData.etfPremium.isPremium ? '프리미엄' : 
-                   marketData.etfPremium.isDiscount ? '할인' : 
-                   '정상'}
-                </div>
+                {marketData.etfPremium ? (
+                  <>
+                    <div className="text-xl sm:text-2xl font-bold">
+                      {marketData.etfPremium.premium >= 0 ? '+' : ''}
+                      {marketData.etfPremium.premium}%
+                    </div>
+                    <div className={`text-xs sm:text-sm mt-1 ${
+                      marketData.etfPremium.isPremium ? 'text-red-600' : 
+                      marketData.etfPremium.isDiscount ? 'text-blue-600' : 
+                      'text-gray-600'
+                    }`}>
+                      {marketData.etfPremium.isPremium ? '프리미엄' : 
+                       marketData.etfPremium.isDiscount ? '할인' : 
+                       '정상'}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                    ⚠️ 일반 종목은 ETF 괴리율 분석이 불가능합니다. ETF 괴리율은 ETF 전용 지표입니다.
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -366,7 +459,10 @@ export default function ReportPage() {
           {marketData.bollingerBands && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">볼린저 밴드</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📊 볼린저 밴드
+                  <IndicatorInfoButton indicatorKey="bollingerBands" />
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>상단: {marketData.bollingerBands.upper.toLocaleString()}</div>
@@ -383,7 +479,10 @@ export default function ReportPage() {
           {marketData.volatility && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">변동성</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📊 변동성
+                  <IndicatorInfoButton indicatorKey="volatility" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl sm:text-2xl font-bold">
@@ -405,20 +504,29 @@ export default function ReportPage() {
           {marketData.volumeIndicators && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">거래량 지표</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  📦 거래량 지표
+                  <IndicatorInfoButton indicatorKey="volumeIndicators" />
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-xs sm:text-sm">
-                <div>평균: {marketData.volumeIndicators.averageVolume.toLocaleString()}</div>
-                <div>비율: {marketData.volumeIndicators.volumeRatio.toFixed(2)}배</div>
-                <div className={`text-xs mt-1 ${
+              <CardContent className="space-y-1.5 text-xs sm:text-sm">
+                <div className="font-medium text-gray-700">현재 거래량</div>
+                <div className="text-base sm:text-lg font-bold text-gray-900">
+                  {(marketData.volumeIndicators.currentVolume ?? marketData.volume).toLocaleString()}
+                </div>
+                <div className="pt-1 border-t border-gray-200">
+                  <div className="text-gray-600">20일 평균: {marketData.volumeIndicators.averageVolume.toLocaleString()}</div>
+                  <div className="text-gray-600">평균 대비: <span className="font-semibold">{marketData.volumeIndicators.volumeRatio.toFixed(2)}배</span></div>
+                </div>
+                <div className={`text-xs sm:text-sm mt-1 font-medium ${
                   marketData.volumeIndicators.isHighVolume ? 'text-red-600' : 'text-gray-600'
                 }`}>
-                  {marketData.volumeIndicators.isHighVolume ? '고거래량' : '정상'}
+                  {marketData.volumeIndicators.isHighVolume ? '🔴 고거래량' : '⚪ 정상'}
                 </div>
                 <div className="text-xs text-gray-500">
-                  추세: {marketData.volumeIndicators.volumeTrend === 'increasing' ? '증가' : 
-                         marketData.volumeIndicators.volumeTrend === 'decreasing' ? '감소' : 
-                         '안정'}
+                  추세: {marketData.volumeIndicators.volumeTrend === 'increasing' ? '📈 증가' : 
+                         marketData.volumeIndicators.volumeTrend === 'decreasing' ? '📉 감소' : 
+                         '➡️ 안정'}
                 </div>
               </CardContent>
             </Card>
@@ -429,7 +537,10 @@ export default function ReportPage() {
           {marketData.supportLevel && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">눌림목 여부</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  🛡️ 눌림목 여부
+                  <IndicatorInfoButton indicatorKey="supportLevel" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className={`text-lg sm:text-2xl font-bold ${
@@ -452,19 +563,30 @@ export default function ReportPage() {
           {marketData.supportResistance && (
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">저항선/지지선</CardTitle>
+                <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                  🎯 저항선/지지선
+                  <IndicatorInfoButton indicatorKey="supportResistance" />
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-xs sm:text-sm">
                 <div>
-                  <div className="font-medium text-gray-700">저항선:</div>
+                  <div className="font-medium text-gray-700">저항선 (최근 고점 기준 3개):</div>
                   <div className="text-gray-600 break-words">
-                    {marketData.supportResistance.resistanceLevels.map(l => l.toLocaleString()).join(', ')}
+                    {marketData.supportResistance.resistanceLevels.map((l, idx) => (
+                      <span key={idx}>
+                        {idx + 1}차: {l.toLocaleString()}{idx < marketData.supportResistance.resistanceLevels.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div>
-                  <div className="font-medium text-gray-700">지지선:</div>
+                  <div className="font-medium text-gray-700">지지선 (최근 저점 기준 3개):</div>
                   <div className="text-gray-600 break-words">
-                    {marketData.supportResistance.supportLevels.map(l => l.toLocaleString()).join(', ')}
+                    {marketData.supportResistance.supportLevels.map((l, idx) => (
+                      <span key={idx}>
+                        {idx + 1}차: {l.toLocaleString()}{idx < marketData.supportResistance.supportLevels.length - 1 ? ', ' : ''}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div className={`text-xs mt-2 ${
@@ -483,7 +605,10 @@ export default function ReportPage() {
           {/* 거래량 */}
           <Card>
             <CardHeader className="pb-2 sm:pb-3">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">거래량</CardTitle>
+              <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
+                거래량
+                <IndicatorInfoButton indicatorKey="volume" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-xl sm:text-2xl font-bold">
@@ -501,7 +626,7 @@ export default function ReportPage() {
               <CardHeader>
                 <CardTitle>주가 차트</CardTitle>
                 <CardDescription>
-                  {currentResult.symbol}의 주가 추이 및 이동평균선
+                  {currentResult.name || currentResult.symbol}의 주가 추이 및 이동평균선
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -554,7 +679,7 @@ export default function ReportPage() {
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>AI 분석 리포트</CardTitle>
-            <CardDescription>{currentResult.symbol} 종목 분석</CardDescription>
+            <CardDescription>{currentResult.name || currentResult.symbol} 종목 분석</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="prose prose-sm max-w-none">
@@ -578,7 +703,10 @@ export default function ReportPage() {
                   ),
                 }}
               >
-                {aiReport}
+                {currentResult.name 
+                  ? aiReport.replace(new RegExp(currentResult.symbol, 'g'), currentResult.name)
+                  : aiReport
+                }
               </ReactMarkdown>
             </div>
           </CardContent>

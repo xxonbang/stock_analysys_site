@@ -39,7 +39,8 @@ export function calculateETFPremium(
 export function calculateBollingerBands(
   prices: number[],
   period: number = 20,
-  multiplier: number = 2
+  multiplier: number = 2,
+  currentPrice?: number // 현재가 (별도 전달 시 사용)
 ): {
   upper: number; // 상단 밴드
   middle: number; // 중심선 (이동평균)
@@ -49,6 +50,7 @@ export function calculateBollingerBands(
 } {
   if (prices.length < period) {
     const avg = prices.length > 0 ? prices.reduce((a, b) => a + b, 0) / prices.length : prices[0] || 0;
+    const price = currentPrice !== undefined ? currentPrice : (prices.length > 0 ? prices[prices.length - 1] : avg);
     return {
       upper: avg,
       middle: avg,
@@ -58,7 +60,8 @@ export function calculateBollingerBands(
     };
   }
   
-  const recentPrices = prices.slice(0, period);
+  // prices 배열은 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
+  const recentPrices = prices.slice(-period);
   const middle = recentPrices.reduce((a, b) => a + b, 0) / period;
   
   // 표준편차 계산
@@ -71,8 +74,9 @@ export function calculateBollingerBands(
   const lower = middle - (stdDev * multiplier);
   const bandwidth = upper - lower > 0 ? ((upper - lower) / middle) * 100 : 0;
   
-  const currentPrice = prices[0];
-  const position = upper - lower > 0 ? (currentPrice - lower) / (upper - lower) : 0.5;
+  // 현재가는 별도 전달받았으면 사용, 없으면 배열의 마지막 값(최신 가격) 사용
+  const price = currentPrice !== undefined ? currentPrice : prices[prices.length - 1];
+  const position = upper - lower > 0 ? (price - lower) / (upper - lower) : 0.5;
   
   return {
     upper: Math.round(upper * 100) / 100,
@@ -143,36 +147,71 @@ export function calculateVolatility(
 
 /**
  * 거래량 지표 계산
+ * volumes 배열은 "과거 → 최신" 순서로 정렬되어 있음을 가정
+ * @param volumes 과거 거래량 배열 (과거 → 최신 순서)
+ * @param period 평균 계산 기간 (기본 20일)
+ * @param latestVolume 최신 거래량 (quote에서 가져온 값, 선택사항)
  */
 export function calculateVolumeIndicators(
   volumes: number[],
-  period: number = 20
+  period: number = 20,
+  latestVolume?: number // quote에서 가져온 최신 거래량
 ): {
-  averageVolume: number; // 평균 거래량
+  currentVolume: number; // 현재 거래량 (최신)
+  averageVolume: number; // 평균 거래량 (최근 period일)
   volumeRatio: number; // 현재 거래량 / 평균 거래량
   isHighVolume: boolean; // 고거래량 여부 (1.5배 이상)
   volumeTrend: 'increasing' | 'decreasing' | 'stable'; // 거래량 추세
 } {
-  if (volumes.length < period || volumes.length === 0) {
+  if (volumes.length === 0) {
     return {
-      averageVolume: volumes[0] || 0,
+      currentVolume: latestVolume || 0,
+      averageVolume: 0,
       volumeRatio: 1,
       isHighVolume: false,
       volumeTrend: 'stable',
     };
   }
+
+  // latestVolume이 제공되면 우선 사용, 없으면 volumes 배열의 마지막 요소 사용
+  // volumes 배열은 "과거 → 최신" 순서이므로, 마지막 요소가 최신 거래량
+  const historicalLatestVolume = volumes.length > 0 ? volumes[volumes.length - 1] : 0;
+  const currentVolume = latestVolume !== undefined ? latestVolume : historicalLatestVolume;
   
-  const recentVolumes = volumes.slice(0, period);
+  // 디버깅 로그
+  if (latestVolume !== undefined) {
+    console.log(`[VolumeIndicators] Using latestVolume from quote: ${latestVolume}, historical latest: ${historicalLatestVolume}`);
+  }
+  
+  if (volumes.length < period) {
+    // 데이터가 부족한 경우, 전체 데이터의 평균 사용
+    const averageVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+    const volumeRatio = averageVolume > 0 ? currentVolume / averageVolume : 1;
+    console.log(`[VolumeIndicators] Data insufficient (${volumes.length} < ${period}), currentVolume: ${currentVolume}, averageVolume: ${averageVolume}, ratio: ${volumeRatio}`);
+    return {
+      currentVolume,
+      averageVolume: Math.round(averageVolume),
+      volumeRatio: Math.round(volumeRatio * 100) / 100,
+      isHighVolume: volumeRatio >= 1.5,
+      volumeTrend: 'stable',
+    };
+  }
+  
+  // 최근 period일의 거래량 (배열의 마지막 period개)
+  const recentVolumes = volumes.slice(-period);
   const averageVolume = recentVolumes.reduce((a, b) => a + b, 0) / period;
-  const currentVolume = volumes[0];
   const volumeRatio = averageVolume > 0 ? currentVolume / averageVolume : 1;
+  
+  // 디버깅 로그
+  console.log(`[VolumeIndicators] currentVolume: ${currentVolume}, averageVolume: ${averageVolume}, ratio: ${volumeRatio.toFixed(2)}`);
   
   const isHighVolume = volumeRatio >= 1.5;
   
-  // 거래량 추세 (최근 5일)
-  const recent5 = volumes.slice(0, Math.min(5, volumes.length));
+  // 거래량 추세 (최근 5일: 배열의 마지막 5개)
+  const recent5 = volumes.slice(-Math.min(5, volumes.length));
   if (recent5.length < 2) {
     return {
+      currentVolume,
       averageVolume: Math.round(averageVolume),
       volumeRatio: Math.round(volumeRatio * 100) / 100,
       isHighVolume,
@@ -180,14 +219,16 @@ export function calculateVolumeIndicators(
     };
   }
   
-  const first = recent5[0];
-  const last = recent5[recent5.length - 1];
+  // recent5는 "과거 → 최신" 순서이므로, 첫 번째가 5일 전, 마지막이 오늘
+  const oldest = recent5[0]; // 5일 전
+  const newest = recent5[recent5.length - 1]; // 오늘
   const volumeTrend = 
-    first > last * 1.1 ? 'increasing' :
-    first < last * 0.9 ? 'decreasing' :
+    newest > oldest * 1.1 ? 'increasing' :
+    newest < oldest * 0.9 ? 'decreasing' :
     'stable';
   
   return {
+    currentVolume,
     averageVolume: Math.round(averageVolume),
     volumeRatio: Math.round(volumeRatio * 100) / 100,
     isHighVolume,

@@ -95,56 +95,40 @@ export function LoadingOverlay({ isLoading, stocks = [] }: LoadingOverlayProps) 
       stepTimings.reportGeneration,
     ];
     
-    // 총 예상 시간
+    // 총 예상 시간 (모든 종목을 종합한 전체 시간)
     const estimatedTotalTime = stepTimings.total;
     
     let currentStep = 0;
-    let accumulatedProgress = 0;
 
     const interval = setInterval(() => {
       if (!startTimeRef.current) return;
       
       const elapsed = Date.now() - startTimeRef.current;
       
-      // 현재 단계까지의 진행률 계산
-      let stepProgress = 0;
-      let stepElapsed = 0;
-      
-      for (let i = 0; i <= currentStep; i++) {
-        if (i < currentStep) {
-          // 완료된 단계는 100%
-          stepProgress += loadingSteps[i].weight * 100;
-          stepElapsed += stepDurations[i];
-        } else {
-          // 현재 단계는 진행 중
-          const currentStepElapsed = elapsed - stepElapsed;
-          const currentStepProgress = Math.min(
-            (currentStepElapsed / stepDurations[i]) * 100,
-            100
-          );
-          stepProgress += loadingSteps[i].weight * currentStepProgress;
-        }
-        
-        if (i < currentStep) {
-          stepElapsed += stepDurations[i];
-        }
-      }
-      
-      // 전체 진행률 계산
-      const progressPercent = Math.min(stepProgress, 99); // 99%까지만 진행
+      // 전체 진행률 계산: 경과 시간을 총 예상 시간으로 나눔
+      const progressPercent = Math.min(
+        (elapsed / estimatedTotalTime) * 100,
+        99 // 99%까지만 진행 (완료는 API 응답 시)
+      );
       setProgress(progressPercent);
 
-      // 단계별 진행 확인
+      // 단계별 진행 확인 (누적 시간 기준)
       let accumulated = 0;
       for (let i = 0; i < loadingSteps.length; i++) {
         accumulated += stepDurations[i];
-        if (elapsed <= accumulated) {
+        if (elapsed < accumulated) {
           if (currentStep !== i) {
             currentStep = i;
             setLoadingStep(i);
             stepStartTimeRef.current = Date.now();
           }
           break;
+        } else if (i === loadingSteps.length - 1) {
+          // 마지막 단계까지 완료
+          if (currentStep !== i) {
+            currentStep = i;
+            setLoadingStep(i);
+          }
         }
       }
     }, 100); // 100ms마다 업데이트

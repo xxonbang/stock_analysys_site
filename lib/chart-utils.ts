@@ -26,7 +26,8 @@ export interface ChartDataPoint {
  * AnalyzeResult를 차트 데이터로 변환
  */
 export function transformToChartData(
-  result: AnalyzeResult
+  result: AnalyzeResult,
+  currentVolume?: number // marketData.volume (최신 거래량)
 ): ChartDataPoint[] {
   if (!result.historicalData || result.historicalData.length === 0) {
     return [];
@@ -39,8 +40,25 @@ export function transformToChartData(
   const closes = historicalData.map((d) => d.close);
   const volumes = historicalData.map((d) => d.volume);
 
+  // 최신 날짜 확인 (오늘 날짜와 비교)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const latestDataPoint = historicalData[historicalData.length - 1];
+  const latestDate = new Date(latestDataPoint.date);
+  latestDate.setHours(0, 0, 0, 0);
+  
+  // 최신 날짜가 오늘이거나 어제인 경우, currentVolume으로 업데이트
+  const isLatestDateTodayOrYesterday = 
+    latestDate.getTime() === today.getTime() || 
+    latestDate.getTime() === today.getTime() - 24 * 60 * 60 * 1000;
+
   // 각 데이터 포인트에 지표 추가
   return historicalData.map((d, index) => {
+    // 최신 데이터 포인트이고 currentVolume이 제공된 경우, 거래량 업데이트
+    const isLatestPoint = index === historicalData.length - 1;
+    const volume = isLatestPoint && currentVolume !== undefined && isLatestDateTodayOrYesterday
+      ? currentVolume
+      : d.volume;
     // 해당 시점(index)까지의 과거 전체 데이터를 사용하여 지표 계산
     const historicalSlice = closes.slice(0, index + 1);
     
@@ -77,7 +95,7 @@ export function transformToChartData(
       open: d.open,
       high: d.high,
       low: d.low,
-      volume: d.volume,
+      volume: volume, // 업데이트된 거래량 사용
       ma5: ma5Val,
       ma20: ma20Val,
       ma60: ma60Val,

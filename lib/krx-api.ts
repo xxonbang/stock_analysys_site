@@ -441,7 +441,10 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       }
     );
 
-    if (etfInfo.length === 0) {
+    // symbol과 일치하는 ETF 찾기
+    const matchingETF = etfInfo.find((item) => item.ISU_CD === symbol);
+    
+    if (!matchingETF) {
       // 어제 데이터로 재시도
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
@@ -458,7 +461,14 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
         return null;
       }
 
-      const data = etfInfoYesterday[0];
+      // 어제 데이터에서도 symbol과 일치하는 ETF 찾기
+      const matchingETFYesterday = etfInfoYesterday.find((item) => item.ISU_CD === symbol);
+      if (!matchingETFYesterday) {
+        // symbol과 일치하는 ETF가 없으면 null 반환 (일반 주식일 가능성)
+        return null;
+      }
+
+      const data = matchingETFYesterday;
       
       // 실제 API 필드명 사용 (캡처 이미지 기반)
       const name = data.ISU_NM || '';
@@ -468,6 +478,11 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       const volume = data.ACC_TRDVOL || '0';
       
       const nav = data.NAV ? parseFloat(String(data.NAV).replace(/,/g, '')) : undefined;
+      
+      // NAV가 없으면 일반 주식이므로 null 반환
+      if (!nav || nav === 0) {
+        return null;
+      }
       
       return {
         name,
@@ -479,7 +494,7 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       };
     }
 
-    const data = etfInfo[0];
+    const data = matchingETF;
     
     // 실제 API 필드명 사용 (캡처 이미지 기반)
     const name = data.ISU_NM || '';
@@ -488,6 +503,11 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
     const changePercent = data.FLUC_RT || '0';
     const volume = data.ACC_TRDVOL || '0';
     const nav = data.NAV ? parseFloat(String(data.NAV).replace(/,/g, '')) : undefined;
+    
+    // NAV가 없으면 일반 주식이므로 null 반환
+    if (!nav || nav === 0) {
+      return null;
+    }
     
     return {
       name,

@@ -67,9 +67,17 @@ export function PriceChart({
           formatter={(value: number) => value.toLocaleString()}
           labelFormatter={(label) => `날짜: ${label}`}
         />
-        <Legend />
+        {/* 주가 라인 (먼저 렌더링하여 범례에서 뒤로 배치) */}
+        <Line
+          type="monotone"
+          dataKey="close"
+          stroke="#3b82f6"
+          strokeWidth={2}
+          dot={false}
+          name="주가"
+        />
         
-        {/* 이동평균선: MA5, MA20, MA60 순서로 범례 정렬을 위해 최상단 배치 */}
+        {/* 이동평균선: MA5, MA20, MA60 순서로 범례 정렬 (5일이 먼저 표시되도록) */}
         {showMovingAverages && (
           <>
             <Line
@@ -78,7 +86,7 @@ export function PriceChart({
               stroke="#f59e0b"
               strokeWidth={1.5}
               dot={false}
-              name="MA5"
+              name="5일 이동평균선"
               strokeDasharray="5 5"
               connectNulls
             />
@@ -88,7 +96,7 @@ export function PriceChart({
               stroke="#10b981"
               strokeWidth={1.5}
               dot={false}
-              name="MA20"
+              name="20일 이동평균선"
               strokeDasharray="5 5"
               connectNulls
             />
@@ -98,21 +106,50 @@ export function PriceChart({
               stroke="#8b5cf6"
               strokeWidth={1.5}
               dot={false}
-              name="MA60"
+              name="60일 이동평균선"
               strokeDasharray="5 5"
               connectNulls
             />
           </>
         )}
 
-        {/* 주가 라인 */}
-        <Line
-          type="monotone"
-          dataKey="close"
-          stroke="#3b82f6"
-          strokeWidth={2}
-          dot={false}
-          name="종가"
+        {/* 범례: 커스텀 순서 지정 (5일 → 20일 → 60일 → 주가) */}
+        <Legend 
+          content={({ payload }) => {
+            if (!payload || payload.length === 0) return null;
+            
+            // 원하는 순서대로 정렬: 5일 → 20일 → 60일 → 주가 → 볼린저 밴드
+            const order = ['5일 이동평균선', '20일 이동평균선', '60일 이동평균선', '주가', '볼린저 밴드 상단선', '볼린저 밴드 중심선', '볼린저 밴드 하단선'];
+            const sortedPayload = payload.sort((a, b) => {
+              const aIndex = order.findIndex(name => a.value === name);
+              const bIndex = order.findIndex(name => b.value === name);
+              if (aIndex === -1 && bIndex === -1) return 0;
+              if (aIndex === -1) return 1;
+              if (bIndex === -1) return -1;
+              return aIndex - bIndex;
+            });
+            
+            return (
+              <ul className="flex flex-wrap justify-center gap-4 mt-4">
+                {sortedPayload.map((entry, index) => (
+                  <li key={`item-${index}`} className="flex items-center gap-2">
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: '14px',
+                        height: '2px',
+                        backgroundColor: entry.color,
+                        borderStyle: entry.payload?.strokeDasharray ? 'dashed' : 'solid',
+                      }}
+                    />
+                    <span style={{ color: entry.color, fontSize: '12px' }}>
+                      {entry.value}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            );
+          }}
         />
 
         {/* 볼린저 밴드 */}
@@ -124,7 +161,7 @@ export function PriceChart({
               stroke="#ef4444"
               strokeWidth={1}
               dot={false}
-              name="BB 상단"
+              name="볼린저 밴드 상단선"
               strokeDasharray="3 3"
               connectNulls
             />
@@ -134,17 +171,17 @@ export function PriceChart({
               stroke="#6b7280"
               strokeWidth={1}
               dot={false}
-              name="BB 중심"
+              name="볼린저 밴드 중심선"
               strokeDasharray="3 3"
               connectNulls
             />
             <Line
               type="monotone"
               dataKey="bbLower"
-              stroke="#3b82f6"
+              stroke="#06b6d4"
               strokeWidth={1}
               dot={false}
-              name="BB 하단"
+              name="볼린저 밴드 하단선"
               strokeDasharray="3 3"
               connectNulls
             />

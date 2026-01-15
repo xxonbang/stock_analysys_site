@@ -27,6 +27,8 @@ export function StockAutocomplete({
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedText, setHighlightedText] = useState("");
+  const isSelectingRef = useRef(false); // 선택 중인지 추적
+  const lastSelectedSymbolRef = useRef<string | null>(null); // 마지막으로 선택된 심볼 추적
 
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -34,10 +36,24 @@ export function StockAutocomplete({
 
   // 검색 실행
   useEffect(() => {
+    // 분석 중이면 검색 중지
+    if (disabled) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setIsLoading(false);
+      return;
+    }
+
+    // 선택 중이거나, 마지막으로 선택된 심볼과 동일한 값이면 검색 건너뛰기
+    if (isSelectingRef.current || (lastSelectedSymbolRef.current && debouncedValue === lastSelectedSymbolRef.current)) {
+      return;
+    }
+
     if (!debouncedValue || debouncedValue.trim().length < 1) {
       setSuggestions([]);
       setShowSuggestions(false);
       setIsLoading(false);
+      lastSelectedSymbolRef.current = null;
       return;
     }
 
@@ -45,6 +61,7 @@ export function StockAutocomplete({
       setSuggestions([]);
       setShowSuggestions(false);
       setIsLoading(false);
+      lastSelectedSymbolRef.current = null;
       return;
     }
 
@@ -64,11 +81,17 @@ export function StockAutocomplete({
         setSuggestions([]);
         setIsLoading(false);
       });
-  }, [debouncedValue]);
+  }, [debouncedValue, disabled]);
 
   // 입력값 변경 시
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
+    
+    // 사용자가 직접 입력한 경우에만 선택 플래그 초기화
+    if (!isSelectingRef.current) {
+      lastSelectedSymbolRef.current = null;
+    }
+    
     onChange(newValue);
     setSelectedIndex(-1);
     if (newValue.trim().length >= 2) {
@@ -79,10 +102,19 @@ export function StockAutocomplete({
   // 제안 선택
   const handleSelect = useCallback(
     (suggestion: StockSuggestion) => {
+      // 선택 중 플래그 설정
+      isSelectingRef.current = true;
+      lastSelectedSymbolRef.current = suggestion.symbol;
+      
       onSelect(suggestion);
       setShowSuggestions(false);
       setSuggestions([]);
       setSelectedIndex(-1);
+      
+      // 선택 완료 후 플래그 해제 (debounce 시간보다 약간 더 길게)
+      setTimeout(() => {
+        isSelectingRef.current = false;
+      }, 500);
     },
     [onSelect]
   );

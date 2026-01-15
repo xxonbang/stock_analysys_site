@@ -38,6 +38,12 @@ const getSystemPrompt = (
 ) => `당신은 월스트리트와 여의도에서 20년 이상 활동한 **수석 투자 전략가(Chief Investment Strategist)**입니다.
 당신의 분석 스타일은 **'데이터에 기반한 냉철한 통찰'**입니다. 단순히 '사라/팔아라'가 아니라, 거시 경제 상황과 기업의 펀더멘털, 그리고 기술적 위치를 종합하여 논리적인 시나리오를 제시합니다.
 
+**뉴스 분석 필수 사항**:
+- 제공된 최신 뉴스 3개를 반드시 확인하고 분석에 활용하세요.
+- 뉴스가 주가에 미칠 수 있는 단기/중기/장기 영향을 구체적으로 분석하세요.
+- 뉴스 내용을 바탕으로 펀더멘털 변화, 시장 심리 변화, 기술적 지표 해석에 반영하세요.
+- 뉴스가 없더라도 최신 시장 동향과 종목 관련 이슈를 고려한 분석을 해주세요.
+
 [분석 지침]
 **중요: 분석 기준일과 분석 기간은 다음과 같습니다.**
 - **분석 기준일**: ${analysisDate} (오늘 날짜) - 모든 분석은 이 날짜를 기준으로 수행하십시오.
@@ -87,6 +93,7 @@ async function generateAIReportsBatch(
   stocksData: Array<{
     symbol: string;
     marketData: AnalyzeResult["marketData"];
+    selectedIndicators?: AnalyzeRequest["indicators"];
   }>,
   period: string,
   historicalPeriod: string,
@@ -100,7 +107,7 @@ async function generateAIReportsBatch(
 
   // 모든 종목의 데이터를 하나의 프롬프트로 구성
   const stocksDataPrompt = stocksData
-    .map(({ symbol, marketData }) => {
+    .map(({ symbol, marketData, selectedIndicators }) => {
       // 프롬프트에 포함될 지표 확인 로깅
       const includedIndicators = [];
       if (marketData.rsi !== undefined) includedIndicators.push("RSI");
@@ -183,8 +190,9 @@ ${
 ${
   marketData.news && marketData.news.length > 0
     ? `
-**최근 뉴스**:
-${marketData.news.map((n, i) => `${i + 1}. ${n.title}`).join("\n")}
+**최근 뉴스 (반드시 분석에 참고하세요)**:
+${marketData.news.slice(0, 3).map((n, i) => `${i + 1}. ${n.title}${n.date ? ` (${new Date(n.date).toLocaleDateString('ko-KR')})` : ''}`).join("\n")}
+**중요**: 위 뉴스 내용을 반드시 종목 분석에 반영하고, 뉴스가 주가에 미칠 수 있는 영향을 분석에 포함해주세요.
 `
     : ""
 }
@@ -193,6 +201,10 @@ ${
     ? `
 **ETF 괴리율**: ${marketData.etfPremium.premium >= 0 ? "+" : ""}${marketData.etfPremium.premium}%
 - 상태: ${marketData.etfPremium.isPremium ? "프리미엄" : marketData.etfPremium.isDiscount ? "할인" : "정상"}
+`
+    : selectedIndicators?.etfPremium
+    ? `
+**ETF 괴리율**: ⚠️ 일반 종목은 ETF 괴리율 분석이 불가능합니다. ETF 괴리율은 ETF 전용 지표입니다.
 `
     : ""
 }
@@ -222,9 +234,10 @@ ${
   marketData.volumeIndicators
     ? `
 **거래량 지표**:
-- 평균 거래량: ${marketData.volumeIndicators.averageVolume.toLocaleString()}
-- 거래량 비율: ${marketData.volumeIndicators.volumeRatio}배 (평균 대비)
-- 고거래량 여부: ${marketData.volumeIndicators.isHighVolume ? "예" : "아니오"}
+- 현재 거래량: ${(marketData.volumeIndicators.currentVolume ?? marketData.volume).toLocaleString()}
+- 20일 평균 거래량: ${marketData.volumeIndicators.averageVolume.toLocaleString()}
+- 평균 대비 비율: ${marketData.volumeIndicators.volumeRatio}배 (현재 거래량이 평균의 ${marketData.volumeIndicators.volumeRatio}배)
+- 고거래량 여부: ${marketData.volumeIndicators.isHighVolume ? "예 (1.5배 이상)" : "아니오"}
 - 거래량 추세: ${marketData.volumeIndicators.volumeTrend === 'increasing' ? '증가' : marketData.volumeIndicators.volumeTrend === 'decreasing' ? '감소' : '안정'}
 `
     : ""
@@ -282,7 +295,12 @@ ${
 
 ${stocksDataPrompt}
 
-**중요**: 각 종목에 대해 독립적인 분석 리포트를 작성하되, 응답 형식은 반드시 다음과 같이 해주세요:
+**중요 지침**:
+1. 각 종목에 대해 독립적인 분석 리포트를 작성하되, 응답 형식은 반드시 다음과 같이 해주세요:
+2. **뉴스 분석 필수**: 각 종목의 "최근 뉴스" 섹션에 제공된 뉴스를 반드시 확인하고, 해당 뉴스가 주가에 미칠 수 있는 영향을 분석에 포함해주세요. 뉴스가 없더라도 최신 시장 동향을 고려한 분석을 해주세요.
+3. 뉴스 내용을 단순 나열하지 말고, 뉴스가 해당 종목의 펀더멘털, 시장 심리, 기술적 지표에 어떤 영향을 줄 수 있는지 구체적으로 분석해주세요.
+
+응답 형식:
 
 ${formatExample}
 
@@ -554,6 +572,7 @@ export async function POST(request: NextRequest) {
     const stocksDataForAI: Array<{
       symbol: string;
       marketData: AnalyzeResult["marketData"];
+      selectedIndicators?: AnalyzeRequest["indicators"];
     }> = [];
 
     // 각 종목별로 데이터 처리 (AI 리포트 생성 전에 모든 데이터 수집)
@@ -575,8 +594,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // 뉴스 수집 (선택사항, 실패해도 계속 진행)
-      const news = await fetchNews(symbol, 5).catch((err) => {
+      // 뉴스 수집 (최신 3개, 필수 - 실패해도 계속 진행하되 빈 배열 반환)
+      const news = await fetchNews(symbol, 3).catch((err) => {
         console.warn(`Failed to fetch news for ${symbol}:`, err);
         return [];
       });
@@ -595,13 +614,23 @@ export async function POST(request: NextRequest) {
       let etfPremium = undefined;
       if (indicators.etfPremium) {
         // ETF인 경우 NAV 가져오기 (한국 주식만)
+        // 일반 주식에는 NAV가 없으므로 ETF 괴리율 계산 불가능
         if (isKoreaStock) {
           try {
             const { fetchKoreaETFInfoKRX } = await import('@/lib/krx-api');
             const koreaSymbol = symbol.replace(".KS", "");
+            
+            // ETF API 호출 (symbol과 일치하는 ETF만 반환하도록 수정됨)
             const etfInfo = await fetchKoreaETFInfoKRX(koreaSymbol).catch(() => null);
+            
+            // fetchKoreaETFInfoKRX는 symbol과 일치하는 ETF가 없으면 null을 반환
+            // NAV가 있고 0보다 큰 경우에만 ETF 괴리율 계산
+            // 일반 주식의 경우 etfInfo가 null이거나 nav가 없으므로 etfPremium은 undefined로 유지됨
             if (etfInfo && etfInfo.nav && etfInfo.nav > 0) {
               etfPremium = calculateETFPremium(stockData.price, etfInfo.nav);
+              console.log(`[Analyze API] ETF premium calculated for ${symbol}: ${etfPremium.premium}%`);
+            } else {
+              console.log(`[Analyze API] ${symbol} is not an ETF or NAV not available (etfInfo: ${etfInfo ? 'exists but no NAV' : 'null'})`);
             }
           } catch (error) {
             console.warn(`Failed to fetch ETF NAV for ${symbol}:`, error);
@@ -611,7 +640,7 @@ export async function POST(request: NextRequest) {
       }
 
       const bollingerBands = indicators.bollingerBands && closes.length > 0
-        ? calculateBollingerBands(closes)
+        ? calculateBollingerBands(closes, 20, 2, stockData.price)
         : undefined;
 
       const volatility = indicators.volatility && closes.length > 0
@@ -619,7 +648,10 @@ export async function POST(request: NextRequest) {
         : undefined;
 
       const volumeIndicators = indicators.volumeIndicators && volumes.length > 0
-        ? calculateVolumeIndicators(volumes)
+        ? (() => {
+            console.log(`[Analyze API] Calculating volume indicators for ${symbol}: stockData.volume=${stockData.volume}, volumes.length=${volumes.length}, last volume in array=${volumes[volumes.length - 1]}`);
+            return calculateVolumeIndicators(volumes, 20, stockData.volume); // stockData.volume을 최신 거래량으로 전달
+          })()
         : undefined;
 
       // Phase 2 지표
@@ -683,7 +715,7 @@ export async function POST(request: NextRequest) {
         hasNews: marketData.news !== undefined,
       });
 
-      stocksDataForAI.push({ symbol, marketData });
+      stocksDataForAI.push({ symbol, marketData, selectedIndicators: indicators });
     }
 
     // 단계 2: 기술적 지표 계산 완료
@@ -765,6 +797,8 @@ export async function POST(request: NextRequest) {
         marketData,
         historicalData,
         aiReport,
+        // indicators 정보도 함께 전달 (일반 종목에서 ETF 괴리율 선택 시 메시지 표시용)
+        selectedIndicators: indicators,
       });
     }
 

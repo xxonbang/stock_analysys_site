@@ -13,21 +13,20 @@ interface GeminiClientOptions {
 /**
  * Gemini API 키 목록 가져오기
  * 지원 형식:
- * - GEMINI_API_KEY (기본 키)
- * - GEMINI_API_KEY_2, GEMINI_API_KEY_3, ... (fallback 키들)
- * - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ... (01, 02 형식도 지원)
+ * - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ... (01, 02 형식)
+ * - GEMINI_API_KEY (선택사항, 있으면 우선 사용)
  */
 export function getGeminiApiKeys(): string[] {
   const keys: string[] = [];
   const foundKeys: Map<string, string> = new Map();
   
-  // 기본 키 (GEMINI_API_KEY)
+  // 선택사항: 기본 키 (GEMINI_API_KEY) - 있으면 우선 사용
   const primaryKey = process.env.GEMINI_API_KEY;
   if (primaryKey && primaryKey.trim() !== '') {
     foundKeys.set('GEMINI_API_KEY', primaryKey.trim());
   }
   
-  // 모든 GEMINI_API_KEY_* 패턴 찾기
+  // 모든 GEMINI_API_KEY_* 패턴 찾기 (GEMINI_API_KEY_01, GEMINI_API_KEY_02 형식)
   for (const [envKey, envValue] of Object.entries(process.env)) {
     if (envKey.startsWith('GEMINI_API_KEY_') && envValue && envValue.trim() !== '') {
       foundKeys.set(envKey, envValue.trim());
@@ -35,38 +34,45 @@ export function getGeminiApiKeys(): string[] {
   }
   
   // 키를 정렬하여 순서대로 추가
-  // 1. GEMINI_API_KEY (기본 키)
+  // 1. GEMINI_API_KEY (있으면 우선 사용)
   if (foundKeys.has('GEMINI_API_KEY')) {
     keys.push(foundKeys.get('GEMINI_API_KEY')!);
   }
   
-  // 2. 나머지 키들을 숫자 순서대로 정렬
-  const otherKeys = Array.from(foundKeys.entries())
+  // 2. GEMINI_API_KEY_* 키들을 숫자 순서대로 정렬 (GEMINI_API_KEY_01, GEMINI_API_KEY_02 순서)
+  const numberedKeys = Array.from(foundKeys.entries())
     .filter(([key]) => key !== 'GEMINI_API_KEY')
     .sort(([keyA], [keyB]) => {
-      // 숫자 추출하여 정렬
-      const numA = parseInt(keyA.replace('GEMINI_API_KEY_', '')) || 0;
-      const numB = parseInt(keyB.replace('GEMINI_API_KEY_', '')) || 0;
+      // 숫자 추출하여 정렬 (01, 02 형식 올바르게 처리)
+      const suffixA = keyA.replace('GEMINI_API_KEY_', '');
+      const suffixB = keyB.replace('GEMINI_API_KEY_', '');
+      const numA = parseInt(suffixA, 10) || 0;
+      const numB = parseInt(suffixB, 10) || 0;
       return numA - numB;
     });
   
-  for (const [, value] of otherKeys) {
+  // GEMINI_API_KEY_01, GEMINI_API_KEY_02 순서로 추가
+  for (const [, value] of numberedKeys) {
     keys.push(value);
   }
   
-  // 디버깅: 찾은 키 개수 로그 (키 값은 보안상 로그하지 않음)
+  // 디버깅: 찾은 키 개수 및 순서 로그
   if (keys.length === 0) {
     console.warn('[Gemini] 환경 변수에서 API 키를 찾을 수 없습니다. 다음 형식을 확인하세요:');
-    console.warn('  - GEMINI_API_KEY');
-    console.warn('  - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ...');
-    console.warn('  - GEMINI_API_KEY_2, GEMINI_API_KEY_3, ...');
+    console.warn('  - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ... (필수)');
+    console.warn('  - GEMINI_API_KEY (선택사항, 있으면 우선 사용)');
     console.warn('[Gemini] 현재 환경 변수 (GEMINI_*):', 
       Object.keys(process.env)
         .filter(k => k.startsWith('GEMINI_'))
         .map(k => `${k}=${process.env[k] ? '***설정됨***' : 'undefined'}`)
     );
   } else {
-    console.log(`[Gemini] ${keys.length}개의 API 키를 찾았습니다.`);
+    const keyNames = keys.length > 0 
+      ? (foundKeys.has('GEMINI_API_KEY') 
+          ? ['GEMINI_API_KEY', ...numberedKeys.map(([key]) => key)]
+          : numberedKeys.map(([key]) => key))
+      : [];
+    console.log(`[Gemini] ${keys.length}개의 API 키를 찾았습니다. 순서: ${keyNames.join(' → ')}`);
   }
   
   return keys;
@@ -119,10 +125,13 @@ export async function callGeminiWithFallback<T>(
         errorCode === 503 || // Service unavailable
         statusCode === 429 ||
         statusCode === 503 ||
-        errorMessage.includes('429') ||
-        errorMessage.includes('503') ||
-        errorMessage.includes('quota') ||
-        errorMessage.includes('rate limit');
+        errorMessage.toLowerCase().includes('429') ||
+        errorMessage.toLowerCase().includes('503') ||
+        errorMessage.toLowerCase().includes('quota') ||
+        errorMessage.toLowerCase().includes('rate limit') ||
+        errorMessage.toLowerCase().includes('resource exhausted') ||
+        errorMessage.toLowerCase().includes('exceeded') ||
+        errorMessage.toLowerCase().includes('limit');
       
       lastError = error instanceof Error ? error : new Error(errorMessage);
       
