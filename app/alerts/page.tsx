@@ -144,10 +144,10 @@ export default function AlertsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
         <div className="container mx-auto max-w-7xl">
-          <Skeleton className="h-12 w-64 mb-8" />
-          <div className="space-y-4">
+          <Skeleton className="h-8 sm:h-12 w-48 sm:w-64 mb-6 sm:mb-8" />
+          <div className="space-y-3 sm:space-y-4">
             {[1, 2, 3, 4, 5].map((i) => (
               <Skeleton key={i} className="h-32" />
             ))}
@@ -159,11 +159,11 @@ export default function AlertsPage() {
 
   if (!alerts) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
         <div className="container mx-auto max-w-7xl">
           <Card>
             <CardContent className="pt-6">
-              <p className="text-center text-gray-500">알림 데이터를 불러올 수 없습니다.</p>
+              <p className="text-center text-sm sm:text-base text-gray-500">알림 데이터를 불러올 수 없습니다.</p>
             </CardContent>
           </Card>
         </div>
@@ -175,28 +175,28 @@ export default function AlertsPage() {
   const resolvedAlerts = alerts.data.alerts.filter((a) => a.resolved);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
       <div className="container mx-auto max-w-7xl">
         {/* 헤더 */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">🚨 알림 시스템</h1>
-            <p className="text-gray-600">데이터 품질 문제 모니터링 및 알림</p>
+        <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-0">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">🚨 알림 시스템</h1>
+            <p className="text-sm sm:text-base text-gray-600">데이터 품질 문제 모니터링 및 알림</p>
           </div>
-          <div className="flex gap-4 items-center">
-            <label className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-stretch sm:items-center">
+            <label className="flex items-center gap-2 text-sm sm:text-base">
               <input
                 type="checkbox"
                 checked={activeOnly}
                 onChange={(e) => setActiveOnly(e.target.checked)}
                 className="rounded"
               />
-              <span className="text-sm">활성 알림만</span>
+              <span>활성 알림만</span>
             </label>
             <select
               value={severityFilter}
               onChange={(e) => setSeverityFilter(e.target.value)}
-              className="px-4 py-2 border rounded-lg bg-white"
+              className="px-3 sm:px-4 py-2 text-sm sm:text-base border rounded-lg bg-white w-full sm:w-auto"
             >
               <option value="all">모든 심각도</option>
               <option value="critical">Critical</option>
@@ -207,45 +207,51 @@ export default function AlertsPage() {
             <Button
               onClick={() => setAutoRefresh(!autoRefresh)}
               variant={autoRefresh ? 'default' : 'outline'}
+              className="w-full sm:w-auto text-sm sm:text-base"
             >
               {autoRefresh ? '🔄 자동 갱신 중' : '⏸️ 일시정지'}
             </Button>
-            <Button onClick={fetchAlerts}>새로고침</Button>
+            <Button 
+              onClick={fetchAlerts}
+              className="w-full sm:w-auto text-sm sm:text-base"
+            >
+              새로고침
+            </Button>
           </div>
         </div>
 
         {/* 통계 카드 */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6 mb-6 sm:mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>전체 알림</CardDescription>
-              <CardTitle className="text-3xl">{alerts.data.stats.total}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">전체 알림</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl">{alerts.data.stats.total}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>활성 알림</CardDescription>
-              <CardTitle className="text-3xl text-red-600">{alerts.data.stats.active}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">활성 알림</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl text-red-600">{alerts.data.stats.active}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>해결됨</CardDescription>
-              <CardTitle className="text-3xl text-green-600">{alerts.data.stats.resolved}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">해결됨</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl text-green-600">{alerts.data.stats.resolved}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Critical</CardDescription>
-              <CardTitle className="text-3xl text-red-700">
+              <CardDescription className="text-xs sm:text-sm">Critical</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl text-red-700">
                 {alerts.data.stats.bySeverity.critical || 0}
               </CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>High</CardDescription>
-              <CardTitle className="text-3xl text-orange-600">
+              <CardDescription className="text-xs sm:text-sm">High</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl text-orange-600">
                 {alerts.data.stats.bySeverity.high || 0}
               </CardTitle>
             </CardHeader>
@@ -254,7 +260,7 @@ export default function AlertsPage() {
 
         {/* 활성 알림 */}
         {activeOnly && activeAlerts.length > 0 && (
-          <Card className="mb-8">
+          <Card className="mb-6 sm:mb-8">
             <CardHeader>
               <CardTitle>활성 알림 ({activeAlerts.length})</CardTitle>
               <CardDescription>해결이 필요한 알림</CardDescription>
@@ -264,18 +270,18 @@ export default function AlertsPage() {
                 {activeAlerts.map((alert) => (
                   <div
                     key={alert.id}
-                    className={`p-4 rounded-lg border-2 ${getSeverityColor(alert.severity)}`}
+                    className={`p-3 sm:p-4 rounded-lg border-2 ${getSeverityColor(alert.severity)}`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-2xl">{getSeverityEmoji(alert.severity)}</span>
-                          <h3 className="font-bold text-lg">{alert.title}</h3>
-                          <span className="text-xs px-2 py-1 bg-white/50 rounded">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-xl sm:text-2xl">{getSeverityEmoji(alert.severity)}</span>
+                          <h3 className="font-bold text-base sm:text-lg break-words">{alert.title}</h3>
+                          <span className="text-xs px-2 py-1 bg-white/50 rounded whitespace-nowrap">
                             {getTypeLabel(alert.type)}
                           </span>
                         </div>
-                        <p className="text-sm mb-2">{alert.message}</p>
+                        <p className="text-xs sm:text-sm mb-2 break-words">{alert.message}</p>
                         <div className="text-xs text-gray-600 space-y-1">
                           <div>데이터 소스: {alert.dataSource}</div>
                           {alert.symbol && <div>종목: {alert.symbol}</div>}
@@ -294,7 +300,7 @@ export default function AlertsPage() {
                         onClick={() => resolveAlert(alert.id)}
                         variant="outline"
                         size="sm"
-                        className="ml-4"
+                        className="w-full sm:w-auto sm:ml-4 flex-shrink-0"
                       >
                         해결
                       </Button>
@@ -328,19 +334,19 @@ export default function AlertsPage() {
                         : getSeverityColor(alert.severity)
                     }`}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-0">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                           <span>{getSeverityEmoji(alert.severity)}</span>
-                          <span className="font-semibold text-sm">{alert.title}</span>
+                          <span className="font-semibold text-xs sm:text-sm break-words">{alert.title}</span>
                           {alert.resolved && (
-                            <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">
+                            <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded whitespace-nowrap">
                               해결됨
                             </span>
                           )}
                         </div>
-                        <p className="text-xs mb-1">{alert.message}</p>
-                        <div className="text-xs text-gray-500">
+                        <p className="text-xs mb-1 break-words">{alert.message}</p>
+                        <div className="text-xs text-gray-500 break-words">
                           {alert.dataSource} {alert.symbol && `• ${alert.symbol}`} •{' '}
                           {formatTime(alert.timestamp)}
                           {alert.resolvedAt && ` • 해결: ${formatTime(alert.resolvedAt)}`}
@@ -351,7 +357,7 @@ export default function AlertsPage() {
                           onClick={() => resolveAlert(alert.id)}
                           variant="outline"
                           size="sm"
-                          className="ml-4"
+                          className="w-full sm:w-auto sm:ml-4 flex-shrink-0"
                         >
                           해결
                         </Button>

@@ -15,6 +15,7 @@ import {
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { IndicatorInfoButton } from "@/components/indicator-info-button";
 import { StockAutocomplete } from "@/components/stock-autocomplete";
+import { useAuth } from "@/lib/auth-context";
 import type { AnalyzeRequest } from "@/lib/types";
 import type { StockSuggestion } from "@/lib/stock-search";
 
@@ -22,6 +23,7 @@ import type { AnalysisPeriod } from "@/lib/types";
 
 export default function HomePage() {
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
   const [stocks, setStocks] = useState<string[]>([""]);
   const [period, setPeriod] = useState<AnalysisPeriod>("1m"); // 향후 전망 분석 기간
   const [historicalPeriod, setHistoricalPeriod] =
@@ -69,6 +71,16 @@ export default function HomePage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 로그인 체크
+    if (!isAuthenticated) {
+      const confirmed = window.confirm("로그인 해주세요.");
+      if (confirmed) {
+        // 로그인 버튼으로 스크롤 및 하이라이트 효과
+        window.dispatchEvent(new Event("highlightLogin"));
+      }
+      return;
+    }
 
     const validStocks = stocks.filter((s) => s.trim() !== "");
     if (validStocks.length === 0) {
@@ -127,9 +139,9 @@ export default function HomePage() {
         try {
           const timingKey = `analysisTiming_${validStocks.length}`;
           localStorage.setItem(timingKey, JSON.stringify(data._metadata));
-          console.log('[Frontend] Saved analysis timing:', data._metadata);
+          console.log("[Frontend] Saved analysis timing:", data._metadata);
         } catch (error) {
-          console.warn('Failed to save analysis timing:', error);
+          console.warn("Failed to save analysis timing:", error);
         }
       }
 
@@ -171,10 +183,24 @@ export default function HomePage() {
                 분석할 종목을 입력하세요 (최대 5개)
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3 sm:space-y-4">
-              <label className="text-xs sm:text-sm font-medium text-gray-700 block">
-                종목명, 종목코드, 티커 등 (예: 삼성전자, AAPL, TSLA, 005930.KS)
-              </label>
+            <CardContent className="space-y-1.5 sm:space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs sm:text-sm font-medium text-gray-700 flex-1">
+                  종목명, 종목코드, 티커 등 (예: 삼성전자, AAPL, TSLA, 005930.KS)
+                </label>
+                {stocks.length < 5 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addStockInput}
+                    disabled={isLoading}
+                    size="sm"
+                    className="text-xs sm:text-sm px-2 sm:px-3 h-7 sm:h-8 flex-shrink-0"
+                  >
+                    ➕ 추가
+                  </Button>
+                )}
+              </div>
               {stocks.map((stock, index) => (
                 <div key={index} className="flex gap-2">
                   <StockAutocomplete
@@ -200,17 +226,12 @@ export default function HomePage() {
                   )}
                 </div>
               ))}
-              {stocks.length < 5 && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={addStockInput}
-                  disabled={isLoading}
-                  className="w-full text-sm sm:text-base"
-                >
-                  ➕ 종목 추가
-                </Button>
-              )}
+              {/* 안내 문구 */}
+              <div className="mt-0 px-0.5 py-0 bg-gray-50/50 rounded-md">
+                <p className="text-[10px] sm:text-xs text-gray-600 leading-relaxed">
+                  <span className="text-gray-500">💡</span> 검색이 끝나지 않았더라도 종목명, 종목코드, 티커 등을 정확히 입력한 상태라면 바로 분석 가능합니다.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -223,14 +244,14 @@ export default function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <Input
                   type="date"
                   value={analysisDate}
                   disabled
-                  className="max-w-xs bg-gray-50 text-gray-700 cursor-not-allowed"
+                  className="w-full sm:max-w-xs bg-gray-50 text-gray-700 cursor-not-allowed"
                 />
-                <span className="text-xs sm:text-sm text-gray-500">
+                <span className="text-xs sm:text-sm text-gray-500 whitespace-nowrap">
                   (변경 불가)
                 </span>
               </div>

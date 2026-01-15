@@ -72,8 +72,8 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
         <div
           ref={ref}
           className={cn(
-            "relative z-50 w-full max-w-lg max-h-[90vh] bg-white rounded-lg shadow-lg",
-            "mx-4",
+            "relative z-50 w-full max-w-lg max-h-[90vh] bg-white rounded-xl shadow-2xl",
+            "mx-4 overflow-hidden",
             className
           )}
           onClick={(e) => e.stopPropagation()}
@@ -93,7 +93,7 @@ const DialogHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("mb-4", className)}
+    className={cn("px-6 pt-6 pb-4", className)}
     {...props}
   />
 ));
@@ -105,7 +105,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h2
     ref={ref}
-    className={cn("text-xl font-semibold text-gray-900", className)}
+    className={cn("text-2xl font-bold text-gray-900 tracking-tight", className)}
     {...props}
   />
 ));

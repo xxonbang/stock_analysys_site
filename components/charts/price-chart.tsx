@@ -38,10 +38,11 @@ export function PriceChart({
   const displayData = data.slice(-60);
 
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={250} className="sm:h-[300px]">
       <LineChart
         data={displayData}
-        margin={{ top: 10, right: 30, left: 20, bottom: 5 }}
+        margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+        className="sm:!mr-8 sm:!ml-5"
       >
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis

@@ -142,11 +142,11 @@ export default function ReportPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <div className="container mx-auto px-4 py-12 max-w-6xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">📊 분석 결과</h1>
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">📊 분석 결과</h1>
             {(currentResult.period || currentResult.historicalPeriod) && (
-              <div className="text-sm text-gray-600 mt-1 space-y-1">
+              <div className="text-xs sm:text-sm text-gray-600 mt-1 space-y-0.5 sm:space-y-1">
                 {currentResult.historicalPeriod && (
                   <p>과거 이력 분석 기간: {currentResult.historicalPeriod}</p>
                 )}
@@ -156,26 +156,30 @@ export default function ReportPage() {
               </div>
             )}
           </div>
-          <Button variant="outline" onClick={() => router.push('/')}>
+          <Button 
+            variant="outline" 
+            onClick={() => router.push('/')}
+            className="w-full sm:w-auto"
+          >
             새 분석
           </Button>
         </div>
 
         {/* 종목 탭 - 항상 표시 (1개일 때도 표시하여 일관성 유지) */}
-        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+        <div className="flex gap-2 mb-4 sm:mb-6 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
           {results.map((result, index) => (
             <button
               key={`${result.symbol}-${index}`}
               onClick={() => setSelectedIndex(index)}
-              className={`px-4 py-2 rounded-md font-medium whitespace-nowrap transition-colors ${
+              className={`px-3 sm:px-4 py-2 rounded-md font-medium whitespace-nowrap transition-colors text-sm sm:text-base flex-shrink-0 ${
                 selectedIndex === index
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-white text-gray-700 hover:bg-gray-100'
               }`}
             >
-              {result.symbol}
+              <span className="block sm:inline">{result.symbol}</span>
               {(result.period || result.historicalPeriod) && (
-                <span className="ml-2 text-xs opacity-75">
+                <span className="ml-1 sm:ml-2 text-xs opacity-75 hidden sm:inline">
                   {result.historicalPeriod && `과거: ${result.historicalPeriod}`}
                   {result.historicalPeriod && result.period && ' / '}
                   {result.period && `전망: ${result.period}`}
@@ -186,18 +190,18 @@ export default function ReportPage() {
         </div>
 
         {/* 대시보드 섹션 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
           {/* 현재가 */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">현재가</CardTitle>
+            <CardHeader className="pb-2 sm:pb-3">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">현재가</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl sm:text-2xl font-bold">
                 {marketData.price.toLocaleString()}
               </div>
               <div
-                className={`text-sm mt-1 ${
+                className={`text-xs sm:text-sm mt-1 ${
                   marketData.changePercent >= 0 ? 'text-red-600' : 'text-blue-600'
                 }`}
               >
@@ -212,12 +216,12 @@ export default function ReportPage() {
           {/* RSI */}
           {marketData.rsi !== undefined && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">RSI(14)</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">RSI(14)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{marketData.rsi}</div>
-                <div className={`text-sm mt-1 ${rsiStatus.color}`}>{rsiStatus.text}</div>
+                <div className="text-xl sm:text-2xl font-bold">{marketData.rsi}</div>
+                <div className={`text-xs sm:text-sm mt-1 ${rsiStatus.color}`}>{rsiStatus.text}</div>
               </CardContent>
             </Card>
           )}
@@ -225,10 +229,10 @@ export default function ReportPage() {
           {/* 이동평균선 */}
           {marketData.movingAverages && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">이동평균선</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">이동평균선</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-sm">
+              <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>5일: {marketData.movingAverages.ma5.toLocaleString()}</div>
                 <div>20일: {marketData.movingAverages.ma20.toLocaleString()}</div>
                 <div>60일: {marketData.movingAverages.ma60.toLocaleString()}</div>
@@ -240,12 +244,12 @@ export default function ReportPage() {
           {/* 이격도 */}
           {marketData.disparity !== undefined && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">이격도 (20일 기준)</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">이격도 (20일 기준)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{marketData.disparity}%</div>
-                <div className="text-sm mt-1 text-gray-600">
+                <div className="text-xl sm:text-2xl font-bold">{marketData.disparity}%</div>
+                <div className="text-xs sm:text-sm mt-1 text-gray-600">
                   {marketData.disparity > 105
                     ? '과열 구간'
                     : marketData.disparity < 95
@@ -259,10 +263,10 @@ export default function ReportPage() {
           {/* 수급 */}
           {marketData.supplyDemand && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">수급 (주)</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">수급 (주)</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-sm">
+              <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>
                   기관:{' '}
                   <span
@@ -307,12 +311,12 @@ export default function ReportPage() {
           {/* VIX */}
           {marketData.vix !== undefined && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">VIX 지수</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">VIX 지수</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{marketData.vix.toFixed(2)}</div>
-                <div className="text-sm mt-1 text-gray-600">
+                <div className="text-xl sm:text-2xl font-bold">{marketData.vix.toFixed(2)}</div>
+                <div className="text-xs sm:text-sm mt-1 text-gray-600">
                   {marketData.vix > 30 ? '공포 구간' : marketData.vix < 20 ? '탐욕 구간' : '중립'}
                 </div>
               </CardContent>
@@ -322,11 +326,11 @@ export default function ReportPage() {
           {/* 환율 */}
           {marketData.exchangeRate && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">환율 (USD/KRW)</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">환율 (USD/KRW)</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-xl sm:text-2xl font-bold">
                   {marketData.exchangeRate.toLocaleString()}
                 </div>
               </CardContent>
@@ -337,15 +341,15 @@ export default function ReportPage() {
           {/* ETF 괴리율 */}
           {marketData.etfPremium && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">ETF 괴리율</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">ETF 괴리율</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-xl sm:text-2xl font-bold">
                   {marketData.etfPremium.premium >= 0 ? '+' : ''}
                   {marketData.etfPremium.premium}%
                 </div>
-                <div className={`text-sm mt-1 ${
+                <div className={`text-xs sm:text-sm mt-1 ${
                   marketData.etfPremium.isPremium ? 'text-red-600' : 
                   marketData.etfPremium.isDiscount ? 'text-blue-600' : 
                   'text-gray-600'
@@ -361,10 +365,10 @@ export default function ReportPage() {
           {/* 볼린저 밴드 */}
           {marketData.bollingerBands && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">볼린저 밴드</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">볼린저 밴드</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-sm">
+              <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>상단: {marketData.bollingerBands.upper.toLocaleString()}</div>
                 <div>중심선: {marketData.bollingerBands.middle.toLocaleString()}</div>
                 <div>하단: {marketData.bollingerBands.lower.toLocaleString()}</div>
@@ -378,14 +382,14 @@ export default function ReportPage() {
           {/* 변동성 */}
           {marketData.volatility && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">변동성</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">변동성</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
+                <div className="text-xl sm:text-2xl font-bold">
                   {marketData.volatility.annualizedVolatility.toFixed(1)}%
                 </div>
-                <div className="text-sm mt-1 text-gray-600">
+                <div className="text-xs sm:text-sm mt-1 text-gray-600">
                   {marketData.volatility.volatilityRank === 'low' ? '낮음' : 
                    marketData.volatility.volatilityRank === 'medium' ? '보통' : 
                    '높음'}
@@ -400,10 +404,10 @@ export default function ReportPage() {
           {/* 거래량 지표 */}
           {marketData.volumeIndicators && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">거래량 지표</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">거래량 지표</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-1 text-sm">
+              <CardContent className="space-y-1 text-xs sm:text-sm">
                 <div>평균: {marketData.volumeIndicators.averageVolume.toLocaleString()}</div>
                 <div>비율: {marketData.volumeIndicators.volumeRatio.toFixed(2)}배</div>
                 <div className={`text-xs mt-1 ${
@@ -424,16 +428,16 @@ export default function ReportPage() {
           {/* 눌림목 여부 */}
           {marketData.supportLevel && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">눌림목 여부</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">눌림목 여부</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${
+                <div className={`text-lg sm:text-2xl font-bold ${
                   marketData.supportLevel.isNearSupport ? 'text-green-600' : 'text-gray-600'
                 }`}>
                   {marketData.supportLevel.isNearSupport ? '지지선 근처' : '일반 구간'}
                 </div>
-                <div className="text-sm mt-1 text-gray-600">
+                <div className="text-xs sm:text-sm mt-1 text-gray-600">
                   지지선: {marketData.supportLevel.supportLevel.toLocaleString()}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
@@ -447,19 +451,19 @@ export default function ReportPage() {
           {/* 저항선/지지선 */}
           {marketData.supportResistance && (
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium text-gray-600">저항선/지지선</CardTitle>
+              <CardHeader className="pb-2 sm:pb-3">
+                <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">저항선/지지선</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm">
+              <CardContent className="space-y-2 text-xs sm:text-sm">
                 <div>
                   <div className="font-medium text-gray-700">저항선:</div>
-                  <div className="text-gray-600">
+                  <div className="text-gray-600 break-words">
                     {marketData.supportResistance.resistanceLevels.map(l => l.toLocaleString()).join(', ')}
                   </div>
                 </div>
                 <div>
                   <div className="font-medium text-gray-700">지지선:</div>
-                  <div className="text-gray-600">
+                  <div className="text-gray-600 break-words">
                     {marketData.supportResistance.supportLevels.map(l => l.toLocaleString()).join(', ')}
                   </div>
                 </div>
@@ -478,11 +482,11 @@ export default function ReportPage() {
 
           {/* 거래량 */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">거래량</CardTitle>
+            <CardHeader className="pb-2 sm:pb-3">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">거래량</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-xl sm:text-2xl font-bold">
                 {marketData.volume.toLocaleString()}
               </div>
             </CardContent>
@@ -491,7 +495,7 @@ export default function ReportPage() {
 
         {/* 차트 섹션 */}
         {chartData && chartData.length > 0 && (
-          <div className="space-y-6 mb-6">
+          <div className="space-y-4 sm:space-y-6 mb-4 sm:mb-6">
             {/* 주가 차트 */}
             <Card>
               <CardHeader>

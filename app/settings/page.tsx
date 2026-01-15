@@ -42,56 +42,56 @@ export default function SettingsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
       <div className="container mx-auto max-w-4xl">
         {/* 헤더 */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">⚙️ 설정</h1>
-          <p className="text-gray-600">시스템 설정 및 API 키 관리</p>
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">⚙️ 설정</h1>
+          <p className="text-sm sm:text-base text-gray-600">시스템 설정 및 API 키 관리</p>
         </div>
 
         {/* KRX API 키 상태 */}
-        <Card className="mb-6">
+        <Card className="mb-4 sm:mb-6">
           <CardHeader>
-            <CardTitle>KRX API 키 상태</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-lg sm:text-xl">KRX API 키 상태</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
               한국거래소(KRX) Open API 키의 유효성을 확인합니다. API 키는 1년 유효기간이 있습니다.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3 sm:space-y-4">
             {isChecking ? (
               <div className="flex items-center gap-2">
                 <Skeleton className="h-4 w-4 rounded-full" />
-                <span className="text-sm text-gray-600">키 검사 중...</span>
+                <span className="text-xs sm:text-sm text-gray-600">키 검사 중...</span>
               </div>
             ) : krxKeyStatus ? (
               <div className="space-y-3">
                 <div
-                  className={`p-4 rounded-lg border-2 ${
+                  className={`p-3 sm:p-4 rounded-lg border-2 ${
                     krxKeyStatus.valid
                       ? 'bg-green-50 border-green-500'
                       : 'bg-red-50 border-red-500'
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="text-xl sm:text-2xl">
                           {krxKeyStatus.valid ? '✅' : '❌'}
                         </span>
-                        <h3 className="font-bold text-lg">
+                        <h3 className="font-bold text-base sm:text-lg break-words">
                           {krxKeyStatus.valid ? 'API 키가 유효합니다' : 'API 키가 유효하지 않습니다'}
                         </h3>
                       </div>
-                      <p className="text-sm mb-2">{krxKeyStatus.message || krxKeyStatus.error}</p>
+                      <p className="text-xs sm:text-sm mb-2 break-words">{krxKeyStatus.message || krxKeyStatus.error}</p>
                       {krxKeyStatus.note && (
-                        <p className="text-xs text-gray-600 mt-2">
+                        <p className="text-xs text-gray-600 mt-2 break-words">
                           <strong>참고:</strong> {krxKeyStatus.note}
                         </p>
                       )}
                       {!krxKeyStatus.valid && (
-                        <div className="mt-4 p-3 bg-white rounded border border-red-200">
-                          <p className="text-sm font-semibold text-red-700 mb-2">
+                        <div className="mt-3 sm:mt-4 p-3 bg-white rounded border border-red-200">
+                          <p className="text-xs sm:text-sm font-semibold text-red-700 mb-2">
                             해결 방법:
                           </p>
                           <ol className="text-xs text-gray-700 space-y-1 list-decimal list-inside">
@@ -101,7 +101,7 @@ export default function SettingsPage() {
                                 href="https://openapi.krx.co.kr/"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline"
+                                className="text-blue-600 hover:underline break-all"
                               >
                                 https://openapi.krx.co.kr/
                               </a>
@@ -109,7 +109,7 @@ export default function SettingsPage() {
                             <li>로그인 후 마이페이지에서 새 API 키 발급</li>
                             <li>
                               환경 변수 파일(.env.local)에 새 키 설정:
-                              <code className="block mt-1 p-2 bg-gray-100 rounded">
+                              <code className="block mt-1 p-2 bg-gray-100 rounded text-xs break-all">
                                 KRX_API_KEY=your_new_api_key_here
                               </code>
                             </li>
@@ -122,7 +122,11 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : null}
-            <Button onClick={checkKRXKey} disabled={isChecking}>
+            <Button 
+              onClick={checkKRXKey} 
+              disabled={isChecking}
+              className="w-full sm:w-auto"
+            >
               {isChecking ? '검사 중...' : '키 검사 다시 실행'}
             </Button>
           </CardContent>
@@ -131,13 +135,13 @@ export default function SettingsPage() {
         {/* 알림 설정 안내 */}
         <Card>
           <CardHeader>
-            <CardTitle>알림 설정</CardTitle>
-            <CardDescription>
+            <CardTitle className="text-lg sm:text-xl">알림 설정</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
               API 키 무효 등 중요한 알림은 자동으로 생성됩니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2 text-sm text-gray-600">
+            <div className="space-y-2 text-xs sm:text-sm text-gray-600">
               <p>
                 • KRX API 키가 무효하거나 만료된 경우 자동으로 알림이 생성됩니다.
               </p>

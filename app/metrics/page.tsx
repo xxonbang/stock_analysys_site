@@ -124,10 +124,10 @@ export default function MetricsDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
         <div className="container mx-auto max-w-7xl">
-          <Skeleton className="h-12 w-64 mb-8" />
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <Skeleton className="h-8 sm:h-12 w-48 sm:w-64 mb-6 sm:mb-8" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <Skeleton key={i} className="h-48" />
             ))}
@@ -139,11 +139,11 @@ export default function MetricsDashboard() {
 
   if (!metrics) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
         <div className="container mx-auto max-w-7xl">
           <Card>
             <CardContent className="pt-6">
-              <p className="text-center text-gray-500">메트릭 데이터를 불러올 수 없습니다.</p>
+              <p className="text-center text-sm sm:text-base text-gray-500">메트릭 데이터를 불러올 수 없습니다.</p>
             </CardContent>
           </Card>
         </div>
@@ -155,19 +155,19 @@ export default function MetricsDashboard() {
   const recentMetrics = metrics.data.recentMetrics;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 sm:p-8">
       <div className="container mx-auto max-w-7xl">
         {/* 헤더 */}
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">📊 데이터 품질 메트릭</h1>
-            <p className="text-gray-600">실시간 데이터 수집 품질 모니터링</p>
+        <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-0">
+          <div className="flex-1">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">📊 데이터 품질 메트릭</h1>
+            <p className="text-sm sm:text-base text-gray-600">실시간 데이터 수집 품질 모니터링</p>
           </div>
-          <div className="flex gap-4 items-center">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-stretch sm:items-center">
             <select
               value={selectedSource}
               onChange={(e) => setSelectedSource(e.target.value)}
-              className="px-4 py-2 border rounded-lg bg-white"
+              className="px-3 sm:px-4 py-2 text-sm sm:text-base border rounded-lg bg-white w-full sm:w-auto"
             >
               <option value="all">전체 소스</option>
               {dataSources.map((source) => (
@@ -179,39 +179,45 @@ export default function MetricsDashboard() {
             <Button
               onClick={() => setAutoRefresh(!autoRefresh)}
               variant={autoRefresh ? 'default' : 'outline'}
+              className="w-full sm:w-auto text-sm sm:text-base"
             >
               {autoRefresh ? '🔄 자동 갱신 중' : '⏸️ 일시정지'}
             </Button>
-            <Button onClick={fetchMetrics}>새로고침</Button>
+            <Button 
+              onClick={fetchMetrics}
+              className="w-full sm:w-auto text-sm sm:text-base"
+            >
+              새로고침
+            </Button>
           </div>
         </div>
 
         {/* 요약 카드 */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>전체 메트릭</CardDescription>
-              <CardTitle className="text-3xl">{metrics.data.summary.totalMetrics}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">전체 메트릭</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl">{metrics.data.summary.totalMetrics}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>데이터 소스</CardDescription>
-              <CardTitle className="text-3xl">{metrics.data.summary.dataSourceCount}</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">데이터 소스</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl">{metrics.data.summary.dataSourceCount}</CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>전체 요청</CardDescription>
-              <CardTitle className="text-3xl">
+              <CardDescription className="text-xs sm:text-sm">전체 요청</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl">
                 {dataSources.reduce((sum, s) => sum + s.totalRequests, 0)}
               </CardTitle>
             </CardHeader>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>평균 성공률</CardDescription>
-              <CardTitle className="text-3xl">
+              <CardDescription className="text-xs sm:text-sm">평균 성공률</CardDescription>
+              <CardTitle className="text-xl sm:text-2xl md:text-3xl">
                 {dataSources.length > 0
                   ? Math.round(
                       dataSources.reduce((sum, s) => sum + getSuccessRate(s), 0) /
@@ -225,7 +231,7 @@ export default function MetricsDashboard() {
         </div>
 
         {/* 데이터 소스별 메트릭 */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {dataSources.map((source) => {
             const successRate = getSuccessRate(source);
             const errorRate = getErrorRate(source);
