@@ -122,6 +122,17 @@ export default function HomePage() {
         throw new Error("분석 결과가 없습니다. 다시 시도해주세요.");
       }
 
+      // 실제 소요 시간 메타데이터를 로컬 스토리지에 저장 (다음 분석 시 진행률 계산에 활용)
+      if (data._metadata) {
+        try {
+          const timingKey = `analysisTiming_${validStocks.length}`;
+          localStorage.setItem(timingKey, JSON.stringify(data._metadata));
+          console.log('[Frontend] Saved analysis timing:', data._metadata);
+        } catch (error) {
+          console.warn('Failed to save analysis timing:', error);
+        }
+      }
+
       // 결과를 sessionStorage에 저장하고 리포트 페이지로 이동
       sessionStorage.setItem("analysisResults", JSON.stringify(data));
       router.push("/report");

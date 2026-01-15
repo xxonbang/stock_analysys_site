@@ -113,4 +113,12 @@ export interface AnalyzeResult {
 export interface AnalyzeResponse {
   results: AnalyzeResult[];
   error?: string;
+  _metadata?: {
+    dataCollection: number;
+    indicatorCalculation: number;
+    aiAnalysis: number;
+    reportGeneration: number;
+    total: number;
+    stockCount: number;
+  };
 }

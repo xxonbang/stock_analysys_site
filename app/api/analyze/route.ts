@@ -391,6 +391,9 @@ ${formatExample}
 }
 
 export async function POST(request: NextRequest) {
+  const analysisStartTime = Date.now();
+  const stepTimings: { step: string; startTime: number; endTime?: number; duration?: number }[] = [];
+
   try {
     const body: AnalyzeRequest = await request.json();
     const { stocks, period, historicalPeriod, analysisDate, indicators } = body;
@@ -446,6 +449,10 @@ export async function POST(request: NextRequest) {
     // 배치로 모든 종목 데이터 수집
     // Python 스크립트 사용 가능하면 우선 사용 (로컬 테스트용)
     console.log(`Fetching data for ${stocks.length} stocks...`);
+
+    // 단계 1: 데이터 수집 시작
+    const dataCollectionStart = Date.now();
+    stepTimings.push({ step: 'dataCollection', startTime: dataCollectionStart });
 
     let stockDataMap: Map<string, StockData>;
 
@@ -530,6 +537,18 @@ export async function POST(request: NextRequest) {
         ? fetchVIX().catch(() => null)
         : Promise.resolve(null),
     ]);
+
+    // 단계 1: 데이터 수집 완료
+    const dataCollectionEnd = Date.now();
+    const dataCollectionTiming = stepTimings.find(t => t.step === 'dataCollection');
+    if (dataCollectionTiming) {
+      dataCollectionTiming.endTime = dataCollectionEnd;
+      dataCollectionTiming.duration = dataCollectionEnd - dataCollectionTiming.startTime;
+    }
+
+    // 단계 2: 기술적 지표 계산 시작
+    const indicatorCalculationStart = Date.now();
+    stepTimings.push({ step: 'indicatorCalculation', startTime: indicatorCalculationStart });
 
     const results: AnalyzeResult[] = [];
     const stocksDataForAI: Array<{
@@ -667,6 +686,18 @@ export async function POST(request: NextRequest) {
       stocksDataForAI.push({ symbol, marketData });
     }
 
+    // 단계 2: 기술적 지표 계산 완료
+    const indicatorCalculationEnd = Date.now();
+    const indicatorCalculationTiming = stepTimings.find(t => t.step === 'indicatorCalculation');
+    if (indicatorCalculationTiming) {
+      indicatorCalculationTiming.endTime = indicatorCalculationEnd;
+      indicatorCalculationTiming.duration = indicatorCalculationEnd - indicatorCalculationTiming.startTime;
+    }
+
+    // 단계 3: AI 분석 시작
+    const aiAnalysisStart = Date.now();
+    stepTimings.push({ step: 'aiAnalysis', startTime: aiAnalysisStart });
+
     // 모든 종목의 데이터를 모아서 한 번에 AI 리포트 생성 (단 1회 Gemini API 호출, fallback 지원)
     let aiReportsMap = new Map<string, string>();
 
@@ -705,6 +736,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 단계 3: AI 분석 완료
+    const aiAnalysisEnd = Date.now();
+    const aiAnalysisTiming = stepTimings.find(t => t.step === 'aiAnalysis');
+    if (aiAnalysisTiming) {
+      aiAnalysisTiming.endTime = aiAnalysisEnd;
+      aiAnalysisTiming.duration = aiAnalysisEnd - aiAnalysisTiming.startTime;
+    }
+
+    // 단계 4: 리포트 생성 시작
+    const reportGenerationStart = Date.now();
+    stepTimings.push({ step: 'reportGeneration', startTime: reportGenerationStart });
+
     // 결과 구성
     for (const { symbol, marketData } of stocksDataForAI) {
       const aiReport =
@@ -732,8 +775,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response: AnalyzeResponse = { results };
-    return NextResponse.json(response);
+    // 단계 4: 리포트 생성 완료
+    const reportGenerationEnd = Date.now();
+    const reportGenerationTiming = stepTimings.find(t => t.step === 'reportGeneration');
+    if (reportGenerationTiming) {
+      reportGenerationTiming.endTime = reportGenerationEnd;
+      reportGenerationTiming.duration = reportGenerationEnd - reportGenerationTiming.startTime;
+    }
+
+    // 전체 분석 시간 계산
+    const totalAnalysisTime = Date.now() - analysisStartTime;
+
+    // 각 단계별 소요 시간을 클라이언트에 전달하기 위한 메타데이터 생성
+    const stepDurations = {
+      dataCollection: stepTimings.find(t => t.step === 'dataCollection')?.duration || 0,
+      indicatorCalculation: stepTimings.find(t => t.step === 'indicatorCalculation')?.duration || 0,
+      aiAnalysis: stepTimings.find(t => t.step === 'aiAnalysis')?.duration || 0,
+      reportGeneration: stepTimings.find(t => t.step === 'reportGeneration')?.duration || 0,
+      total: totalAnalysisTime,
+      stockCount: stocks.length,
+    };
+
+    console.log('[Analyze API] Step timings:', stepDurations);
+
+    const response: AnalyzeResponse = { 
+      results,
+      // 메타데이터를 응답 헤더에 포함 (클라이언트에서 활용 가능)
+      _metadata: stepDurations,
+    };
+    
+    const responseObj = NextResponse.json(response);
+    // 클라이언트에서 활용할 수 있도록 헤더에도 포함
+    responseObj.headers.set('X-Analysis-Timing', JSON.stringify(stepDurations));
+    
+    return responseObj;
   } catch (error) {
     console.error("Error in analyze API:", error);
     return NextResponse.json(

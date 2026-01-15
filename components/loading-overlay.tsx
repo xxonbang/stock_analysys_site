@@ -1,55 +1,156 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface LoadingOverlayProps {
   isLoading: boolean;
   stocks?: string[];
 }
 
+interface StepTiming {
+  step: number;
+  duration: number;
+  weight: number;
+}
+
 export function LoadingOverlay({ isLoading, stocks = [] }: LoadingOverlayProps) {
   const [loadingStep, setLoadingStep] = useState(0);
   const [progress, setProgress] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
+  const stepStartTimeRef = useRef<number | null>(null);
 
   const loadingSteps = [
-    { text: '데이터 수집 중...', duration: 2000 },
-    { text: '기술적 지표 계산 중...', duration: 1500 },
-    { text: 'AI 분석 중...', duration: 2500 },
-    { text: '리포트 생성 중...', duration: 1000 },
+    { text: '데이터 수집 중...', weight: 0.25 }, // 25%
+    { text: '기술적 지표 계산 중...', weight: 0.30 }, // 30%
+    { text: 'AI 분석 중...', weight: 0.35 }, // 35%
+    { text: '리포트 생성 중...', weight: 0.10 }, // 10%
   ];
+
+  // 로컬 스토리지에서 이전 분석의 실제 소요 시간 가져오기
+  const getHistoricalTimings = (): { dataCollection: number; indicatorCalculation: number; aiAnalysis: number; reportGeneration: number; total: number } | null => {
+    if (typeof window === 'undefined') return null;
+    
+    try {
+      const timingKey = `analysisTiming_${stocks.length}`;
+      const stored = localStorage.getItem(timingKey);
+      if (!stored) return null;
+      
+      const timing = JSON.parse(stored);
+      // 종목 수가 일치하는 경우에만 사용
+      if (timing && timing.stockCount === stocks.length) {
+        return {
+          dataCollection: timing.dataCollection || 0,
+          indicatorCalculation: timing.indicatorCalculation || 0,
+          aiAnalysis: timing.aiAnalysis || 0,
+          reportGeneration: timing.reportGeneration || 0,
+          total: timing.total || 0,
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to load historical timings:', error);
+    }
+    
+    return null;
+  };
+
+  // 기본 예상 시간 (밀리초)
+  const getDefaultTimings = () => {
+    const baseTime = 15000; // 기본 15초
+    const timePerStock = 5000; // 종목당 추가 5초
+    const totalTime = baseTime + (stocks.length * timePerStock);
+    
+    return {
+      dataCollection: totalTime * loadingSteps[0].weight,
+      indicatorCalculation: totalTime * loadingSteps[1].weight,
+      aiAnalysis: totalTime * loadingSteps[2].weight,
+      reportGeneration: totalTime * loadingSteps[3].weight,
+      total: totalTime,
+    };
+  };
 
   useEffect(() => {
     if (!isLoading) {
+      // 분석 완료 시 실제 소요 시간은 API 응답에서 받아서 저장하므로 여기서는 저장하지 않음
+      
       setLoadingStep(0);
       setProgress(0);
+      startTimeRef.current = null;
+      stepStartTimeRef.current = null;
       return;
     }
 
+    // 분석 시작
+    startTimeRef.current = Date.now();
+    stepStartTimeRef.current = Date.now();
+    
+    // 이전 분석의 실제 소요 시간 또는 기본 예상 시간 사용
+    const historicalTimings = getHistoricalTimings();
+    const stepTimings = historicalTimings || getDefaultTimings();
+    
+    // 각 단계별 예상 소요 시간 계산 (실제 측정된 시간 사용)
+    const stepDurations = [
+      stepTimings.dataCollection,
+      stepTimings.indicatorCalculation,
+      stepTimings.aiAnalysis,
+      stepTimings.reportGeneration,
+    ];
+    
+    // 총 예상 시간
+    const estimatedTotalTime = stepTimings.total;
+    
     let currentStep = 0;
-    let currentProgress = 0;
-    const totalDuration = loadingSteps.reduce((sum, step) => sum + step.duration, 0);
+    let accumulatedProgress = 0;
 
     const interval = setInterval(() => {
-      currentProgress += 50;
-      const newProgress = Math.min((currentProgress / totalDuration) * 100, 95);
-      setProgress(newProgress);
+      if (!startTimeRef.current) return;
+      
+      const elapsed = Date.now() - startTimeRef.current;
+      
+      // 현재 단계까지의 진행률 계산
+      let stepProgress = 0;
+      let stepElapsed = 0;
+      
+      for (let i = 0; i <= currentStep; i++) {
+        if (i < currentStep) {
+          // 완료된 단계는 100%
+          stepProgress += loadingSteps[i].weight * 100;
+          stepElapsed += stepDurations[i];
+        } else {
+          // 현재 단계는 진행 중
+          const currentStepElapsed = elapsed - stepElapsed;
+          const currentStepProgress = Math.min(
+            (currentStepElapsed / stepDurations[i]) * 100,
+            100
+          );
+          stepProgress += loadingSteps[i].weight * currentStepProgress;
+        }
+        
+        if (i < currentStep) {
+          stepElapsed += stepDurations[i];
+        }
+      }
+      
+      // 전체 진행률 계산
+      const progressPercent = Math.min(stepProgress, 99); // 99%까지만 진행
+      setProgress(progressPercent);
 
-      // 단계별 진행
+      // 단계별 진행 확인
       let accumulated = 0;
       for (let i = 0; i < loadingSteps.length; i++) {
-        accumulated += loadingSteps[i].duration;
-        if (currentProgress <= accumulated) {
+        accumulated += stepDurations[i];
+        if (elapsed <= accumulated) {
           if (currentStep !== i) {
             currentStep = i;
             setLoadingStep(i);
+            stepStartTimeRef.current = Date.now();
           }
           break;
         }
       }
-    }, 50);
+    }, 100); // 100ms마다 업데이트
 
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isLoading, stocks.length]);
 
   if (!isLoading) return null;
 
