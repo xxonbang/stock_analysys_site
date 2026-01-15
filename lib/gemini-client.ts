@@ -12,23 +12,61 @@ interface GeminiClientOptions {
 
 /**
  * Gemini API 키 목록 가져오기
+ * 지원 형식:
+ * - GEMINI_API_KEY (기본 키)
+ * - GEMINI_API_KEY_2, GEMINI_API_KEY_3, ... (fallback 키들)
+ * - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ... (01, 02 형식도 지원)
  */
 export function getGeminiApiKeys(): string[] {
   const keys: string[] = [];
+  const foundKeys: Map<string, string> = new Map();
   
-  // 기본 키
+  // 기본 키 (GEMINI_API_KEY)
   const primaryKey = process.env.GEMINI_API_KEY;
-  if (primaryKey) {
-    keys.push(primaryKey);
+  if (primaryKey && primaryKey.trim() !== '') {
+    foundKeys.set('GEMINI_API_KEY', primaryKey.trim());
   }
   
-  // Fallback 키들 (GEMINI_API_KEY_2, GEMINI_API_KEY_3 등)
-  let index = 2;
-  while (true) {
-    const key = process.env[`GEMINI_API_KEY_${index}`];
-    if (!key) break;
-    keys.push(key);
-    index++;
+  // 모든 GEMINI_API_KEY_* 패턴 찾기
+  for (const [envKey, envValue] of Object.entries(process.env)) {
+    if (envKey.startsWith('GEMINI_API_KEY_') && envValue && envValue.trim() !== '') {
+      foundKeys.set(envKey, envValue.trim());
+    }
+  }
+  
+  // 키를 정렬하여 순서대로 추가
+  // 1. GEMINI_API_KEY (기본 키)
+  if (foundKeys.has('GEMINI_API_KEY')) {
+    keys.push(foundKeys.get('GEMINI_API_KEY')!);
+  }
+  
+  // 2. 나머지 키들을 숫자 순서대로 정렬
+  const otherKeys = Array.from(foundKeys.entries())
+    .filter(([key]) => key !== 'GEMINI_API_KEY')
+    .sort(([keyA], [keyB]) => {
+      // 숫자 추출하여 정렬
+      const numA = parseInt(keyA.replace('GEMINI_API_KEY_', '')) || 0;
+      const numB = parseInt(keyB.replace('GEMINI_API_KEY_', '')) || 0;
+      return numA - numB;
+    });
+  
+  for (const [, value] of otherKeys) {
+    keys.push(value);
+  }
+  
+  // 디버깅: 찾은 키 개수 로그 (키 값은 보안상 로그하지 않음)
+  if (keys.length === 0) {
+    console.warn('[Gemini] 환경 변수에서 API 키를 찾을 수 없습니다. 다음 형식을 확인하세요:');
+    console.warn('  - GEMINI_API_KEY');
+    console.warn('  - GEMINI_API_KEY_01, GEMINI_API_KEY_02, ...');
+    console.warn('  - GEMINI_API_KEY_2, GEMINI_API_KEY_3, ...');
+    console.warn('[Gemini] 현재 환경 변수 (GEMINI_*):', 
+      Object.keys(process.env)
+        .filter(k => k.startsWith('GEMINI_'))
+        .map(k => `${k}=${process.env[k] ? '***설정됨***' : 'undefined'}`)
+    );
+  } else {
+    console.log(`[Gemini] ${keys.length}개의 API 키를 찾았습니다.`);
   }
   
   return keys;

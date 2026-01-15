@@ -104,11 +104,19 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
     let closes: number[] = [];
     let volumes: number[] = [];
     let timestamps: number[] = [];
+    let historicalData: Array<{
+      date: string;
+      close: number;
+      volume: number;
+      high?: number;
+      low?: number;
+      open?: number;
+    }> = [];
 
     try {
       // 먼저 Finnhub candle API 시도 (유료 플랜용)
       const endDate = Math.floor(Date.now() / 1000);
-      const startDate = endDate - 120 * 24 * 60 * 60; // 120일 전
+      const startDate = endDate - 180 * 24 * 60 * 60; // 180일 전 (지표 계산용)
 
       const candles = await finnhubRequest<FinnhubCandle>('/stock/candle', {
         symbol,
@@ -118,9 +126,23 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
       });
 
       if (candles && candles.c && candles.c.length > 0) {
-        closes = candles.c.reverse();
-        volumes = candles.v.reverse();
-        timestamps = candles.t.reverse();
+        closes = candles.c;
+        volumes = candles.v;
+        timestamps = candles.t;
+        
+        // Finnhub candle 데이터 사용 시 historicalData 구성
+        const highs = candles.h;
+        const lows = candles.l;
+        const opens = candles.o;
+        
+        historicalData = closes.map((close, index) => ({
+          date: new Date(timestamps[index] * 1000).toISOString().split('T')[0],
+          close,
+          volume: volumes[index] || 0,
+          high: highs[index] || close,
+          low: lows[index] || close,
+          open: opens[index] || close,
+        }));
       } else {
         throw new Error('No candle data from Finnhub');
       }
@@ -138,7 +160,7 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
           
           const endDate = new Date();
           const startDate = new Date();
-          startDate.setDate(startDate.getDate() - 120);
+          startDate.setDate(startDate.getDate() - 180);
 
           // chart() API 사용 (historical()의 대체)
           const chart = await yahooFinance.chart(symbol, {
@@ -214,17 +236,25 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
         );
       }
 
-      closes = validHistorical.map((h) => h.close || 0).reverse();
-      volumes = validHistorical.map((h) => h.volume || 0).reverse();
-      timestamps = validHistorical.map((h) => Math.floor((h.date?.getTime() || Date.now()) / 1000)).reverse();
+      closes = validHistorical.map((h) => h.close || 0);
+      volumes = validHistorical.map((h) => h.volume || 0);
+      timestamps = validHistorical.map((h) => Math.floor((h.date?.getTime() || Date.now()) / 1000));
+      
+      // high, low, open도 함께 추출
+      const highs = validHistorical.map((h) => h.high || h.close || 0);
+      const lows = validHistorical.map((h) => h.low || h.close || 0);
+      const opens = validHistorical.map((h) => h.open || h.close || 0);
+      
+      // Historical 데이터 구성 (Yahoo Finance fallback)
+      historicalData = closes.map((close, index) => ({
+        date: new Date(timestamps[index] * 1000).toISOString().split('T')[0],
+        close,
+        volume: volumes[index] || 0,
+        high: highs[index] || close,
+        low: lows[index] || close,
+        open: opens[index] || close,
+      }));
     }
-
-    // Historical 데이터 구성
-    const historicalData = closes.map((close, index) => ({
-      date: new Date(timestamps[index] * 1000).toISOString().split('T')[0],
-      close,
-      volume: volumes[index] || 0,
-    }));
 
     // 기술적 지표 계산
     const rsi = calculateRSI(closes, 14);

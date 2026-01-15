@@ -14,7 +14,15 @@ import {
   fetchVIX,
   fetchNews,
 } from "@/lib/finance-adapter";
-import { fetchKoreaSupplyDemand } from "@/lib/finance";
+import { fetchKoreaSupplyDemand, calculateRSI, calculateMA, calculateDisparity, type StockData } from "@/lib/finance";
+import {
+  calculateETFPremium,
+  calculateBollingerBands,
+  calculateVolatility,
+  calculateVolumeIndicators,
+  detectSupportLevel,
+  calculateSupportResistance,
+} from "@/lib/indicators";
 import { callGeminiWithFallback, getGeminiApiKeys } from "@/lib/gemini-client";
 import type {
   AnalyzeRequest,
@@ -25,14 +33,21 @@ import { periodToKorean } from "@/lib/period-utils";
 
 const getSystemPrompt = (
   period: string,
-  historicalPeriod: string
+  historicalPeriod: string,
+  analysisDate: string
 ) => `당신은 월스트리트와 여의도에서 20년 이상 활동한 **수석 투자 전략가(Chief Investment Strategist)**입니다.
 당신의 분석 스타일은 **'데이터에 기반한 냉철한 통찰'**입니다. 단순히 '사라/팔아라'가 아니라, 거시 경제 상황과 기업의 펀더멘털, 그리고 기술적 위치를 종합하여 논리적인 시나리오를 제시합니다.
 
 [분석 지침]
-**중요: 사용자가 요청한 분석 기간은 다음과 같습니다.**
+**중요: 분석 기준일과 분석 기간은 다음과 같습니다.**
+- **분석 기준일**: ${analysisDate} (오늘 날짜) - 모든 분석은 이 날짜를 기준으로 수행하십시오.
 - **향후 전망 분석 기간**: [${period}] - 이 기간 동안의 주가 전망을 분석하십시오.
 - **과거 이력 분석 기간**: [${historicalPeriod}] - 이 기간 동안의 과거 주가 움직임과 패턴을 분석하십시오.
+
+**분석 기준일(${analysisDate}) 기준:**
+- 모든 가격, 지표, 데이터는 ${analysisDate} 기준으로 해석하십시오.
+- "오늘", "현재", "최근" 등의 표현은 모두 ${analysisDate}를 의미합니다.
+- 향후 전망은 ${analysisDate}부터 시작하여 ${period} 기간 동안의 전망을 제시하십시오.
 
 **향후 전망 분석 기간(${period}) 관점:**
 - '1일' 또는 '1주일'을 선택했다면 단기 트레이딩 관점에서 분석하십시오.
@@ -75,12 +90,13 @@ async function generateAIReportsBatch(
   }>,
   period: string,
   historicalPeriod: string,
+  analysisDate: string,
   genAI: GoogleGenerativeAI
 ): Promise<Map<string, string>> {
   // Gemini 모델명: gemini-2.5-flash 사용 (최신 모델)
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-  const systemPrompt = getSystemPrompt(period, historicalPeriod);
+  const systemPrompt = getSystemPrompt(period, historicalPeriod, analysisDate);
 
   // 모든 종목의 데이터를 하나의 프롬프트로 구성
   const stocksDataPrompt = stocksData
@@ -99,6 +115,12 @@ async function generateAIReportsBatch(
         includedIndicators.push("ExchangeRate");
       if (marketData.news !== undefined && marketData.news.length > 0)
         includedIndicators.push("News");
+      if (marketData.etfPremium !== undefined) includedIndicators.push("ETFPremium");
+      if (marketData.bollingerBands !== undefined) includedIndicators.push("BollingerBands");
+      if (marketData.volatility !== undefined) includedIndicators.push("Volatility");
+      if (marketData.volumeIndicators !== undefined) includedIndicators.push("VolumeIndicators");
+      if (marketData.supportLevel !== undefined) includedIndicators.push("SupportLevel");
+      if (marketData.supportResistance !== undefined) includedIndicators.push("SupportResistance");
 
       console.log(
         `[Gemini Prompt] Indicators included for ${symbol}:`,
@@ -163,6 +185,67 @@ ${
     ? `
 **최근 뉴스**:
 ${marketData.news.map((n, i) => `${i + 1}. ${n.title}`).join("\n")}
+`
+    : ""
+}
+${
+  marketData.etfPremium
+    ? `
+**ETF 괴리율**: ${marketData.etfPremium.premium >= 0 ? "+" : ""}${marketData.etfPremium.premium}%
+- 상태: ${marketData.etfPremium.isPremium ? "프리미엄" : marketData.etfPremium.isDiscount ? "할인" : "정상"}
+`
+    : ""
+}
+${
+  marketData.bollingerBands
+    ? `
+**볼린저 밴드**:
+- 상단: ${marketData.bollingerBands.upper.toLocaleString()}
+- 중심선: ${marketData.bollingerBands.middle.toLocaleString()}
+- 하단: ${marketData.bollingerBands.lower.toLocaleString()}
+- 밴드폭: ${marketData.bollingerBands.bandwidth}%
+- 현재 위치: ${(marketData.bollingerBands.position * 100).toFixed(1)}% (0=하단, 100=상단)
+`
+    : ""
+}
+${
+  marketData.volatility
+    ? `
+**변동성 지표**:
+- 일일 변동성: ${marketData.volatility.volatility}%
+- 연율화 변동성: ${marketData.volatility.annualizedVolatility}%
+- 변동성 등급: ${marketData.volatility.volatilityRank === 'low' ? '낮음' : marketData.volatility.volatilityRank === 'medium' ? '보통' : '높음'}
+`
+    : ""
+}
+${
+  marketData.volumeIndicators
+    ? `
+**거래량 지표**:
+- 평균 거래량: ${marketData.volumeIndicators.averageVolume.toLocaleString()}
+- 거래량 비율: ${marketData.volumeIndicators.volumeRatio}배 (평균 대비)
+- 고거래량 여부: ${marketData.volumeIndicators.isHighVolume ? "예" : "아니오"}
+- 거래량 추세: ${marketData.volumeIndicators.volumeTrend === 'increasing' ? '증가' : marketData.volumeIndicators.volumeTrend === 'decreasing' ? '감소' : '안정'}
+`
+    : ""
+}
+${
+  marketData.supportLevel
+    ? `
+**눌림목 여부**:
+- 지지선 근처: ${marketData.supportLevel.isNearSupport ? "예" : "아니오"}
+- 지지선 레벨: ${marketData.supportLevel.supportLevel.toLocaleString()}
+- 지지선으로부터 거리: ${marketData.supportLevel.distanceFromSupport >= 0 ? "+" : ""}${marketData.supportLevel.distanceFromSupport}%
+`
+    : ""
+}
+${
+  marketData.supportResistance
+    ? `
+**저항선/지지선**:
+- 저항선 레벨: ${marketData.supportResistance.resistanceLevels.map(l => l.toLocaleString()).join(", ")}
+- 지지선 레벨: ${marketData.supportResistance.supportLevels.map(l => l.toLocaleString()).join(", ")}
+- 현재 위치: ${marketData.supportResistance.currentPosition === 'near_resistance' ? '저항선 근처' : marketData.supportResistance.currentPosition === 'near_support' ? '지지선 근처' : '중간'}
 `
     : ""
 }
@@ -310,7 +393,7 @@ ${formatExample}
 export async function POST(request: NextRequest) {
   try {
     const body: AnalyzeRequest = await request.json();
-    const { stocks, period, historicalPeriod, indicators } = body;
+    const { stocks, period, historicalPeriod, analysisDate, indicators } = body;
 
     // 지표 선택 상태 로깅
     console.log("[Analyze API] Selected indicators:", {
@@ -364,7 +447,7 @@ export async function POST(request: NextRequest) {
     // Python 스크립트 사용 가능하면 우선 사용 (로컬 테스트용)
     console.log(`Fetching data for ${stocks.length} stocks...`);
 
-    let stockDataMap: Map<string, any>;
+    let stockDataMap: Map<string, StockData>;
 
     // Python 스크립트 직접 사용 (로컬 환경에서 테스트)
     // 환경 변수 확인 또는 강제 사용
@@ -479,6 +562,65 @@ export async function POST(request: NextRequest) {
         return [];
       });
 
+      // Phase 1 & Phase 2 지표 계산
+      // historicalData가 없으면 빈 배열로 처리
+      const historicalData = stockData.historicalData || [];
+      const closes = historicalData.length > 0 
+        ? historicalData.map((d) => d.close) 
+        : [];
+      const volumes = historicalData.length > 0
+        ? historicalData.map((d) => d.volume)
+        : [];
+
+      // Phase 1 지표
+      let etfPremium = undefined;
+      if (indicators.etfPremium) {
+        // ETF인 경우 NAV 가져오기 (한국 주식만)
+        if (isKoreaStock) {
+          try {
+            const { fetchKoreaETFInfoKRX } = await import('@/lib/krx-api');
+            const koreaSymbol = symbol.replace(".KS", "");
+            const etfInfo = await fetchKoreaETFInfoKRX(koreaSymbol).catch(() => null);
+            if (etfInfo && etfInfo.nav && etfInfo.nav > 0) {
+              etfPremium = calculateETFPremium(stockData.price, etfInfo.nav);
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch ETF NAV for ${symbol}:`, error);
+          }
+        }
+        // 미국 ETF는 별도 처리 필요 (현재는 한국 ETF만 지원)
+      }
+
+      const bollingerBands = indicators.bollingerBands && closes.length > 0
+        ? calculateBollingerBands(closes)
+        : undefined;
+
+      const volatility = indicators.volatility && closes.length > 0
+        ? calculateVolatility(closes)
+        : undefined;
+
+      const volumeIndicators = indicators.volumeIndicators && volumes.length > 0
+        ? calculateVolumeIndicators(volumes)
+        : undefined;
+
+      // Phase 2 지표
+      const supportLevel = indicators.supportLevel && historicalData.length > 0
+        ? detectSupportLevel(historicalData, stockData.price)
+        : undefined;
+
+      const supportResistance = indicators.supportResistance && historicalData.length > 0
+        ? calculateSupportResistance(historicalData)
+        : undefined;
+
+      // 기술적 지표 (RSI, MA, 이격도 등) 계산
+      const rsiValue = calculateRSI(closes, 14);
+      const ma5 = calculateMA(closes, 5);
+      const ma20 = calculateMA(closes, 20);
+      const ma60 = calculateMA(closes, 60);
+      const ma120 = calculateMA(closes, 120);
+      
+      const disparity = calculateDisparity(stockData.price, ma20);
+
       // 마켓 데이터 구성
       const marketData: AnalyzeResult["marketData"] = {
         price: stockData.price,
@@ -486,16 +628,29 @@ export async function POST(request: NextRequest) {
         changePercent: stockData.changePercent,
         volume: stockData.volume,
         marketCap: stockData.marketCap,
-        ...(indicators.rsi && { rsi: stockData.rsi }),
+        ...(indicators.rsi && { rsi: rsiValue }),
         ...(indicators.movingAverages && {
-          movingAverages: stockData.movingAverages,
+          movingAverages: {
+            ma5,
+            ma20,
+            ma60,
+            ma120,
+          },
         }),
-        ...(indicators.disparity && { disparity: stockData.disparity }),
+        ...(indicators.disparity && { disparity }),
         ...(supplyDemand && { supplyDemand }),
         ...(indicators.fearGreed && vix !== null && { vix }),
         ...(indicators.exchangeRate &&
           exchangeRate !== null && { exchangeRate }),
         ...(news.length > 0 && { news }),
+        // Phase 1 지표
+        ...(etfPremium && { etfPremium }),
+        ...(bollingerBands && { bollingerBands }),
+        ...(volatility && { volatility }),
+        ...(volumeIndicators && { volumeIndicators }),
+        // Phase 2 지표
+        ...(supportLevel && { supportLevel }),
+        ...(supportResistance && { supportResistance }),
       };
 
       // marketData에 포함된 지표 로깅
@@ -522,12 +677,14 @@ export async function POST(request: NextRequest) {
         );
 
         // Fallback 지원으로 Gemini API 호출
+        const analysisDateStr = analysisDate || new Date().toISOString().split('T')[0];
         aiReportsMap = await callGeminiWithFallback(
           async (genAI: GoogleGenerativeAI) => {
             return await generateAIReportsBatch(
               stocksDataForAI,
               periodKorean,
               historicalPeriodKorean,
+              analysisDateStr,
               genAI
             );
           },
@@ -554,11 +711,16 @@ export async function POST(request: NextRequest) {
         aiReportsMap.get(symbol) ||
         `## ${symbol} 분석 리포트\n\n⚠️ AI 리포트를 생성할 수 없습니다.\n\n데이터 수집은 성공적으로 완료되었습니다.`;
 
+      // historicalData 가져오기
+      const stockData = stockDataMap.get(symbol);
+      const historicalData = stockData?.historicalData || undefined;
+
       results.push({
         symbol,
         period: periodKorean,
         historicalPeriod: historicalPeriodKorean,
         marketData,
+        historicalData,
         aiReport,
       });
     }

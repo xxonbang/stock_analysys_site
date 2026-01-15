@@ -422,6 +422,7 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
   change: number;
   changePercent: number;
   volume: number;
+  nav?: number; // NAV (순자산가치)
 } | null> {
   try {
     if (!KRX_API_KEY) {
@@ -466,12 +467,15 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       const changePercent = data.FLUC_RT || '0';
       const volume = data.ACC_TRDVOL || '0';
       
+      const nav = data.NAV ? parseFloat(String(data.NAV).replace(/,/g, '')) : undefined;
+      
       return {
         name,
         price: parseFloat(String(closePrice).replace(/,/g, '')) || 0,
         change: parseFloat(String(change).replace(/[+,]/g, '')) || 0,
         changePercent: parseFloat(String(changePercent).replace(/[+,%]/g, '')) || 0,
         volume: parseInt(String(volume).replace(/,/g, '')) || 0,
+        nav,
       };
     }
 
@@ -483,6 +487,7 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
     const change = data.CMPPREVDD_PRC || '0';
     const changePercent = data.FLUC_RT || '0';
     const volume = data.ACC_TRDVOL || '0';
+    const nav = data.NAV ? parseFloat(String(data.NAV).replace(/,/g, '')) : undefined;
     
     return {
       name,
@@ -490,6 +495,7 @@ export async function fetchKoreaETFInfoKRX(symbol: string): Promise<{
       change: parseFloat(String(change).replace(/[+,]/g, '')) || 0,
       changePercent: parseFloat(String(changePercent).replace(/[+,%]/g, '')) || 0,
       volume: parseInt(String(volume).replace(/,/g, '')) || 0,
+      nav,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

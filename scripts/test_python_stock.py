@@ -102,7 +102,8 @@ def fetch_stock(symbol: str, period: str = '1m'):
     """주식 데이터 수집"""
     print(f"Fetching data for {symbol} (period: {period})...", file=sys.stderr)
     
-    days = period_to_days(period)
+    # 지표 계산(MA120 등)을 위해 분석 기간보다 훨씬 긴 데이터를 기본적으로 수집 (최소 180일)
+    days = max(period_to_days(period), 180)
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
     

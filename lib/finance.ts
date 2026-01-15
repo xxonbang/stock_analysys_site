@@ -21,6 +21,9 @@ export interface StockData {
     date: string;
     close: number;
     volume: number;
+    high?: number;
+    low?: number;
+    open?: number;
   }>;
 }
 
@@ -37,7 +40,7 @@ export interface MarketSentiment {
 
 /**
  * RSI(Relative Strength Index) 계산
- * @param prices 종가 배열 (최신순)
+ * @param prices 종가 배열 (오래된 순서: 과거 -> 최신)
  * @param period 기간 (기본값: 14)
  */
 export function calculateRSI(prices: number[], period: number = 14): number {
@@ -45,24 +48,21 @@ export function calculateRSI(prices: number[], period: number = 14): number {
     return 50; // 데이터 부족 시 중립값 반환
   }
 
-  const changes: number[] = [];
-  for (let i = 1; i < prices.length; i++) {
-    changes.push(prices[i - 1] - prices[i]);
-  }
-
   const gains: number[] = [];
   const losses: number[] = [];
 
-  for (const change of changes) {
+  for (let i = 1; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
     gains.push(change > 0 ? change : 0);
     losses.push(change < 0 ? Math.abs(change) : 0);
   }
 
-  // 초기 평균
+  // 초기 평균 (Simple Moving Average)
   let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
 
-  // Wilder's Smoothing 적용
+  // Wilder's Smoothing (Exponential Moving Average 성격)
+  // 초기 평균 이후의 데이터들을 순차적으로 반영
   for (let i = period; i < gains.length; i++) {
     avgGain = (avgGain * (period - 1) + gains[i]) / period;
     avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
@@ -77,14 +77,15 @@ export function calculateRSI(prices: number[], period: number = 14): number {
 
 /**
  * 이동평균선 계산
- * @param prices 종가 배열 (최신순)
+ * @param prices 종가 배열 (오래된 순서: 과거 -> 최신)
  * @param period 기간
  */
-export function calculateMA(prices: number[], period: number): number {
+export function calculateMA(prices: number[], period: number): number | null {
   if (prices.length < period) {
-    return prices[0] || 0;
+    return null;
   }
-  const sum = prices.slice(0, period).reduce((a, b) => a + b, 0);
+  // 가장 최근 period개의 데이터를 가져옴
+  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
   return Math.round((sum / period) * 100) / 100;
 }
 
@@ -200,10 +201,10 @@ export async function fetchStockData(
     const volume = Math.max(0, quote.regularMarketVolume || 0);
     const marketCap = quote.marketCap && quote.marketCap > 0 ? quote.marketCap : undefined;
 
-    // 과거 120일치 데이터 조회 (이동평균선 계산을 위해)
+    // 과거 180일치 데이터 조회 (이동평균선 계산을 위해 충분히 확보)
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 120);
+    startDate.setDate(startDate.getDate() - 180);
 
     // 요청 간 딜레이 추가 (rate limiting 방지)
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -233,8 +234,7 @@ export async function fetchStockData(
         }
         return close;
       })
-      .filter((close): close is number => close !== null)
-      .reverse();
+      .filter((close): close is number => close !== null);
 
     if (closes.length === 0) {
       throw new Error(`No valid close prices in historical data for ${symbol}`);
@@ -242,11 +242,13 @@ export async function fetchStockData(
 
     const historicalData = historical
       .filter((h) => h.close !== null && h.close !== undefined && !isNaN(h.close) && h.close > 0)
-      .reverse()
       .map((h) => ({
         date: h.date.toISOString().split('T')[0],
         close: h.close,
         volume: h.volume || 0,
+        high: h.high || h.close,
+        low: h.low || h.close,
+        open: h.open || h.close,
       }));
 
     // 기술적 지표 계산

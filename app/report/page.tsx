@@ -1,18 +1,23 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AnalyzeResponse, AnalyzeResult } from '@/lib/types';
 import ReactMarkdown from 'react-markdown';
+import { PriceChart } from '@/components/charts/price-chart';
+import { VolumeChart } from '@/components/charts/volume-chart';
+import { RSIChart } from '@/components/charts/rsi-chart';
+import { transformToChartData } from '@/lib/chart-utils';
 
 export default function ReportPage() {
   const router = useRouter();
   const [results, setResults] = useState<AnalyzeResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [periodText, setPeriodText] = useState('데이터를');
 
   useEffect(() => {
     // sessionStorage는 클라이언트 사이드에서만 사용 가능
@@ -33,6 +38,11 @@ export default function ReportPage() {
       if (data.results && data.results.length > 0) {
         setResults(data.results);
         setSelectedIndex(0); // 결과가 로드되면 첫 번째 종목으로 리셋
+        
+        // 분석 기간 텍스트 설정 (하이드레이션 오류 방지)
+        if (data.results[0].period) {
+          setPeriodText(`${data.results[0].period} 동안의 데이터를`);
+        }
       } else {
         router.push('/');
       }
@@ -52,23 +62,23 @@ export default function ReportPage() {
     }
   }, [results.length]); // results.length만 의존성으로 사용 (무한 루프 방지)
 
-  if (isLoading) {
-    // sessionStorage는 클라이언트 사이드에서만 사용 가능
-    let periodText = '데이터를';
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem('analysisResults');
-      if (stored) {
-        try {
-          const data: AnalyzeResponse = JSON.parse(stored);
-          if (data.results && data.results.length > 0 && data.results[0].period) {
-            periodText = `${data.results[0].period} 동안의 데이터를`;
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
+  // 안전한 인덱스 계산 (항상 유효한 범위 내)
+  const safeIndex = results.length > 0 
+    ? Math.max(0, Math.min(selectedIndex, results.length - 1)) 
+    : 0;
+  
+  const currentResult = results.length > 0 ? results[safeIndex] : null;
+
+  // 차트 데이터 메모이제이션
+  // ⚠️ 중요: 모든 hooks는 조건부 return 이전에 호출되어야 함 (React Hooks 규칙)
+  const chartData = useMemo(() => {
+    if (!currentResult?.historicalData || currentResult.historicalData.length === 0) {
+      return null;
     }
-    
+    return transformToChartData(currentResult);
+  }, [currentResult]);
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
         <div className="container mx-auto px-4 py-12 max-w-6xl">
@@ -100,13 +110,6 @@ export default function ReportPage() {
       </div>
     );
   }
-  
-  // 안전한 인덱스 계산 (항상 유효한 범위 내)
-  const safeIndex = results.length > 0 
-    ? Math.max(0, Math.min(selectedIndex, results.length - 1)) 
-    : 0;
-  
-  const currentResult = results.length > 0 ? results[safeIndex] : null;
   
   if (!currentResult) {
     return (
@@ -330,6 +333,149 @@ export default function ReportPage() {
             </Card>
           )}
 
+          {/* Phase 1 지표 */}
+          {/* ETF 괴리율 */}
+          {marketData.etfPremium && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">ETF 괴리율</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {marketData.etfPremium.premium >= 0 ? '+' : ''}
+                  {marketData.etfPremium.premium}%
+                </div>
+                <div className={`text-sm mt-1 ${
+                  marketData.etfPremium.isPremium ? 'text-red-600' : 
+                  marketData.etfPremium.isDiscount ? 'text-blue-600' : 
+                  'text-gray-600'
+                }`}>
+                  {marketData.etfPremium.isPremium ? '프리미엄' : 
+                   marketData.etfPremium.isDiscount ? '할인' : 
+                   '정상'}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 볼린저 밴드 */}
+          {marketData.bollingerBands && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">볼린저 밴드</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div>상단: {marketData.bollingerBands.upper.toLocaleString()}</div>
+                <div>중심선: {marketData.bollingerBands.middle.toLocaleString()}</div>
+                <div>하단: {marketData.bollingerBands.lower.toLocaleString()}</div>
+                <div className="text-xs text-gray-500 mt-2">
+                  위치: {(marketData.bollingerBands.position * 100).toFixed(1)}% (0=하단, 100=상단)
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 변동성 */}
+          {marketData.volatility && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">변동성</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {marketData.volatility.annualizedVolatility.toFixed(1)}%
+                </div>
+                <div className="text-sm mt-1 text-gray-600">
+                  {marketData.volatility.volatilityRank === 'low' ? '낮음' : 
+                   marketData.volatility.volatilityRank === 'medium' ? '보통' : 
+                   '높음'}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  일일: {marketData.volatility.volatility.toFixed(2)}%
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 거래량 지표 */}
+          {marketData.volumeIndicators && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">거래량 지표</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm">
+                <div>평균: {marketData.volumeIndicators.averageVolume.toLocaleString()}</div>
+                <div>비율: {marketData.volumeIndicators.volumeRatio.toFixed(2)}배</div>
+                <div className={`text-xs mt-1 ${
+                  marketData.volumeIndicators.isHighVolume ? 'text-red-600' : 'text-gray-600'
+                }`}>
+                  {marketData.volumeIndicators.isHighVolume ? '고거래량' : '정상'}
+                </div>
+                <div className="text-xs text-gray-500">
+                  추세: {marketData.volumeIndicators.volumeTrend === 'increasing' ? '증가' : 
+                         marketData.volumeIndicators.volumeTrend === 'decreasing' ? '감소' : 
+                         '안정'}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Phase 2 지표 */}
+          {/* 눌림목 여부 */}
+          {marketData.supportLevel && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">눌림목 여부</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold ${
+                  marketData.supportLevel.isNearSupport ? 'text-green-600' : 'text-gray-600'
+                }`}>
+                  {marketData.supportLevel.isNearSupport ? '지지선 근처' : '일반 구간'}
+                </div>
+                <div className="text-sm mt-1 text-gray-600">
+                  지지선: {marketData.supportLevel.supportLevel.toLocaleString()}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">
+                  거리: {marketData.supportLevel.distanceFromSupport >= 0 ? '+' : ''}
+                  {marketData.supportLevel.distanceFromSupport.toFixed(2)}%
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 저항선/지지선 */}
+          {marketData.supportResistance && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium text-gray-600">저항선/지지선</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div>
+                  <div className="font-medium text-gray-700">저항선:</div>
+                  <div className="text-gray-600">
+                    {marketData.supportResistance.resistanceLevels.map(l => l.toLocaleString()).join(', ')}
+                  </div>
+                </div>
+                <div>
+                  <div className="font-medium text-gray-700">지지선:</div>
+                  <div className="text-gray-600">
+                    {marketData.supportResistance.supportLevels.map(l => l.toLocaleString()).join(', ')}
+                  </div>
+                </div>
+                <div className={`text-xs mt-2 ${
+                  marketData.supportResistance.currentPosition === 'near_resistance' ? 'text-red-600' :
+                  marketData.supportResistance.currentPosition === 'near_support' ? 'text-green-600' :
+                  'text-gray-600'
+                }`}>
+                  현재: {marketData.supportResistance.currentPosition === 'near_resistance' ? '저항선 근처' :
+                         marketData.supportResistance.currentPosition === 'near_support' ? '지지선 근처' :
+                         '중간'}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* 거래량 */}
           <Card>
             <CardHeader className="pb-3">
@@ -342,6 +488,63 @@ export default function ReportPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* 차트 섹션 */}
+        {chartData && chartData.length > 0 && (
+          <div className="space-y-6 mb-6">
+            {/* 주가 차트 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>주가 차트</CardTitle>
+                <CardDescription>
+                  {currentResult.symbol}의 주가 추이 및 이동평균선
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PriceChart
+                  data={chartData}
+                  symbol={currentResult.symbol}
+                  showMovingAverages={!!marketData.movingAverages}
+                  showBollingerBands={!!marketData.bollingerBands}
+                />
+              </CardContent>
+            </Card>
+
+            {/* 거래량 차트 */}
+            <Card>
+              <CardHeader>
+                <CardTitle>거래량 차트</CardTitle>
+                <CardDescription>
+                  일일 거래량 및 평균 거래량
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <VolumeChart
+                  data={chartData}
+                  averageVolume={marketData.volumeIndicators?.averageVolume}
+                />
+              </CardContent>
+            </Card>
+
+            {/* RSI 차트 */}
+            {marketData.rsi !== undefined && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>RSI (상대강도지수)</CardTitle>
+                  <CardDescription>
+                    과매수/과매도 구간 분석
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <RSIChart
+                    data={chartData}
+                    currentRSI={marketData.rsi}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
 
         {/* AI 리포트 섹션 */}
         <Card className="mb-6">
