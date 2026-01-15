@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { LoadingOverlay } from "@/components/loading-overlay";
+import { IndicatorInfoButton } from "@/components/indicator-info-button";
 import type { AnalyzeRequest } from "@/lib/types";
 
 import type { AnalysisPeriod } from "@/lib/types";
@@ -327,7 +328,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">RSI</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    RSI
+                    <IndicatorInfoButton indicatorKey="rsi" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -340,8 +344,9 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">
+                  <span className="text-xs sm:text-sm flex items-center">
                     이동평균선 (5/20/60/120)
+                    <IndicatorInfoButton indicatorKey="movingAverages" />
                   </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
@@ -355,7 +360,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">이격도</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    이격도
+                    <IndicatorInfoButton indicatorKey="disparity" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -368,7 +376,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">수급 (기관/외인)</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    수급 (기관/외인)
+                    <IndicatorInfoButton indicatorKey="supplyDemand" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -381,7 +392,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">공포/탐욕 지수</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    공포/탐욕 지수
+                    <IndicatorInfoButton indicatorKey="fearGreed" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -394,7 +408,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">환율</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    환율
+                    <IndicatorInfoButton indicatorKey="exchangeRate" />
+                  </span>
                 </label>
                 {/* Phase 1 지표 */}
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
@@ -408,7 +425,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">ETF 괴리율</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    ETF 괴리율
+                    <IndicatorInfoButton indicatorKey="etfPremium" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -421,7 +441,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">볼린저 밴드</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    볼린저 밴드
+                    <IndicatorInfoButton indicatorKey="bollingerBands" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -434,7 +457,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">변동성 지표</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    변동성 지표
+                    <IndicatorInfoButton indicatorKey="volatility" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -447,7 +473,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">거래량 지표</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    거래량 지표
+                    <IndicatorInfoButton indicatorKey="volumeIndicators" />
+                  </span>
                 </label>
                 {/* Phase 2 지표 */}
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
@@ -461,7 +490,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">눌림목 여부</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    눌림목 여부
+                    <IndicatorInfoButton indicatorKey="supportLevel" />
+                  </span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer py-1">
                   <Checkbox
@@ -474,7 +506,10 @@ export default function HomePage() {
                     }
                     disabled={isLoading}
                   />
-                  <span className="text-xs sm:text-sm">저항선/지지선</span>
+                  <span className="text-xs sm:text-sm flex items-center">
+                    저항선/지지선
+                    <IndicatorInfoButton indicatorKey="supportResistance" />
+                  </span>
                 </label>
               </div>
             </CardContent>
