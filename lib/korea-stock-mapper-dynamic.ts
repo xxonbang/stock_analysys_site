@@ -28,10 +28,12 @@ interface CachedStockListing {
 
 /**
  * Python 스크립트를 통해 KRX 전체 종목 리스트 가져오기
+ * 종합적인 데이터 소스를 활용하여 최대한 완전한 리스트 확보
  */
 async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
   return new Promise((resolve, reject) => {
-    const scriptPath = join(process.cwd(), 'scripts', 'get_stock_listing.py');
+    // 종합적인 데이터 소스를 활용하는 스크립트 사용
+    const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
     const pythonProcess = spawn('python3', [scriptPath]);
 
     let output = '';
@@ -131,7 +133,7 @@ async function saveCachedStockListing(data: StockListingItem[]): Promise<void> {
 /**
  * StockListing 데이터 가져오기 (캐시 우선)
  */
-async function getStockListing(): Promise<StockListingItem[]> {
+export async function getStockListing(): Promise<StockListingItem[]> {
   // 1. 캐시 확인
   try {
     const cached = await readCachedStockListing();

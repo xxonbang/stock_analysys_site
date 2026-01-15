@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/card";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { IndicatorInfoButton } from "@/components/indicator-info-button";
+import { StockAutocomplete } from "@/components/stock-autocomplete";
 import type { AnalyzeRequest } from "@/lib/types";
+import type { StockSuggestion } from "@/lib/stock-search";
 
 import type { AnalysisPeriod } from "@/lib/types";
 
@@ -142,7 +144,7 @@ export default function HomePage() {
       <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-12 max-w-4xl">
         <div className="text-center mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-2">
-            📈 Stock Insight
+            📈 종목어때.ai
           </h1>
           <p className="text-sm sm:text-base text-gray-600">
             AI 기반 실시간 주식 분석 리포트
@@ -164,12 +166,14 @@ export default function HomePage() {
               </label>
               {stocks.map((stock, index) => (
                 <div key={index} className="flex gap-2">
-                  <Input
-                    type="text"
-                    placeholder="종목 입력"
+                  <StockAutocomplete
                     value={stock}
-                    onChange={(e) => updateStock(index, e.target.value)}
+                    onChange={(value) => updateStock(index, value)}
+                    onSelect={(suggestion) => {
+                      updateStock(index, suggestion.symbol);
+                    }}
                     disabled={isLoading}
+                    placeholder="종목 입력"
                     className="flex-1"
                   />
                   {stocks.length > 1 && (
