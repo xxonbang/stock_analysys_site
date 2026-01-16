@@ -337,19 +337,36 @@ export function calculateSupportResistance(
   }
   
   // 고점/저점 추출 (날짜 정보 포함)
-  const highData = recentData
-    .map(d => ({
-      value: d.high !== undefined && d.high !== null ? d.high : d.close,
-      date: d.date || ''
-    }))
-    .filter(h => h.value > 0 && h.date);
+  // 같은 가격이 여러 날짜에 있을 경우를 대비하여, 각 가격에 대해 가장 최근 날짜를 매핑
+  const highDataMap = new Map<number, { value: number; date: string }>();
+  const lowDataMap = new Map<number, { value: number; date: string }>();
   
-  const lowData = recentData
-    .map(d => ({
-      value: d.low !== undefined && d.low !== null ? d.low : d.close,
-      date: d.date || ''
-    }))
-    .filter(l => l.value > 0 && l.date);
+  for (const d of recentData) {
+    const highValue = d.high !== undefined && d.high !== null ? d.high : d.close;
+    const lowValue = d.low !== undefined && d.low !== null ? d.low : d.close;
+    const date = d.date || '';
+    
+    if (highValue > 0 && date) {
+      const roundedHigh = Math.round(highValue * 100) / 100;
+      const existing = highDataMap.get(roundedHigh);
+      if (!existing || new Date(date).getTime() > new Date(existing.date).getTime()) {
+        // 같은 가격이 없거나, 더 최근 날짜면 업데이트
+        highDataMap.set(roundedHigh, { value: roundedHigh, date });
+      }
+    }
+    
+    if (lowValue > 0 && date) {
+      const roundedLow = Math.round(lowValue * 100) / 100;
+      const existing = lowDataMap.get(roundedLow);
+      if (!existing || new Date(date).getTime() > new Date(existing.date).getTime()) {
+        // 같은 가격이 없거나, 더 최근 날짜면 업데이트
+        lowDataMap.set(roundedLow, { value: roundedLow, date });
+      }
+    }
+  }
+  
+  const highData = Array.from(highDataMap.values());
+  const lowData = Array.from(lowDataMap.values());
   
   // 디버깅: 추출된 데이터 확인
   console.log('[calculateSupportResistance] Extracted data:', {
@@ -398,19 +415,47 @@ export function calculateSupportResistance(
   
   const top3Highs = uniqueHighs.slice(0, 3);
   const resistanceLevels = top3Highs.map(h => Math.round(h.value * 100) / 100);
+  
+  // 각 저항선 레벨에 대해 recentData에서 해당 가격과 일치하는 모든 날짜를 찾아 가장 최근 날짜 선택
   const resistanceDates = top3Highs.map((h, idx) => {
-    const dateStr = h.date || '';
+    // recentData에서 해당 가격과 일치하는 모든 날짜 찾기
+    const matchingDates = recentData
+      .map(d => ({
+        date: d.date,
+        highValue: d.high !== undefined && d.high !== null ? d.high : d.close,
+      }))
+      .filter(d => {
+        const roundedMatch = Math.round(d.highValue * 100) / 100;
+        const roundedTarget = Math.round(h.value * 100) / 100;
+        return Math.abs(roundedMatch - roundedTarget) < 0.01;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 최신 날짜 우선
+    
+    // 가장 최근 날짜 선택
+    const mostRecentDate = matchingDates.length > 0 ? matchingDates[0].date : h.date;
+    
+    // 디버깅: 날짜 선택 과정 확인
+    if (matchingDates.length > 1) {
+      console.log(`[calculateSupportResistance] Resistance level ${idx + 1} (${h.value}): Found ${matchingDates.length} matching dates, using most recent: ${mostRecentDate} (was: ${h.date})`);
+    }
+    
+    const dateStr = mostRecentDate || '';
     // 날짜 형식 확인 및 정규화
     if (!dateStr) {
       console.error(`[calculateSupportResistance] Empty date for resistance level ${idx + 1}:`, h);
-      // 날짜가 없으면 recentData에서 해당 가격과 일치하는 날짜 찾기
-      const matchingData = recentData.find(d => {
-        const highValue = d.high !== undefined && d.high !== null ? d.high : d.close;
-        return Math.abs(highValue - h.value) < 0.01;
-      });
-      if (matchingData && matchingData.date) {
-        console.log(`[calculateSupportResistance] Found matching date from recentData:`, matchingData.date);
-        return matchingData.date;
+      // 날짜가 없으면 recentData에서 해당 가격과 일치하는 모든 날짜 찾기
+      // 같은 가격이 여러 날짜에 있을 경우, 가장 최근 날짜를 선택
+      const matchingDataList = recentData
+        .map(d => ({
+          date: d.date,
+          highValue: d.high !== undefined && d.high !== null ? d.high : d.close,
+        }))
+        .filter(d => Math.abs(d.highValue - h.value) < 0.01)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // 최신 날짜 우선
+      
+      if (matchingDataList.length > 0 && matchingDataList[0].date) {
+        console.log(`[calculateSupportResistance] Found matching date from recentData (${matchingDataList.length} matches, using most recent):`, matchingDataList[0].date);
+        return matchingDataList[0].date;
       }
       return '';
     }
@@ -452,20 +497,35 @@ export function calculateSupportResistance(
   
   const bottom3Lows = uniqueLows.slice(0, 3);
   const supportLevels = bottom3Lows.map(l => Math.round(l.value * 100) / 100);
+  
+  // 각 지지선 레벨에 대해 recentData에서 해당 가격과 일치하는 모든 날짜를 찾아 가장 최초 발생일 선택
+  // 지지선은 가격 오름차순(1차=가장 낮은 가격)이므로, 날짜도 오름차순(1차=가장 오래된 날짜)으로 정렬하여 일관성 유지
   const supportDates = bottom3Lows.map((l, idx) => {
-    const dateStr = l.date || '';
+    // recentData에서 해당 가격과 일치하는 모든 날짜 찾기
+    const matchingDates = recentData
+      .map(d => ({
+        date: d.date,
+        lowValue: d.low !== undefined && d.low !== null ? d.low : d.close,
+      }))
+      .filter(d => {
+        const roundedMatch = Math.round(d.lowValue * 100) / 100;
+        const roundedTarget = Math.round(l.value * 100) / 100;
+        return Math.abs(roundedMatch - roundedTarget) < 0.01;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // 최초 발생일 우선 (오름차순)
+    
+    // 가장 최초 발생일 선택
+    const firstOccurrenceDate = matchingDates.length > 0 ? matchingDates[0].date : l.date;
+    
+    // 디버깅: 날짜 선택 과정 확인
+    if (matchingDates.length > 1) {
+      console.log(`[calculateSupportResistance] Support level ${idx + 1} (${l.value}): Found ${matchingDates.length} matching dates, using first occurrence: ${firstOccurrenceDate} (was: ${l.date})`);
+    }
+    
+    const dateStr = firstOccurrenceDate || '';
     // 날짜 형식 확인 및 정규화
     if (!dateStr) {
       console.error(`[calculateSupportResistance] Empty date for support level ${idx + 1}:`, l);
-      // 날짜가 없으면 recentData에서 해당 가격과 일치하는 날짜 찾기
-      const matchingData = recentData.find(d => {
-        const lowValue = d.low !== undefined && d.low !== null ? d.low : d.close;
-        return Math.abs(lowValue - l.value) < 0.01;
-      });
-      if (matchingData && matchingData.date) {
-        console.log(`[calculateSupportResistance] Found matching date from recentData:`, matchingData.date);
-        return matchingData.date;
-      }
       return '';
     }
     // ISO 형식 (YYYY-MM-DD)이 아닌 경우 변환 시도

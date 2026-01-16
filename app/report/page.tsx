@@ -851,38 +851,45 @@ export default function ReportPage() {
                     </span>
                   </span>
                 </div>
-                <div className="pt-2 border-t border-gray-200 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                  <div className="text-gray-600">
-                    20일 평균:{" "}
-                    {marketData.volumeIndicators.averageVolume.toLocaleString()}
+                <div className="pt-2 border-t border-gray-200 flex flex-wrap gap-x-4 gap-y-2 items-center">
+                  <div className="text-sm sm:text-base text-gray-700">
+                    <span className="font-semibold">20일 평균:</span>{" "}
+                    <span className="font-bold text-gray-900">
+                      {marketData.volumeIndicators.averageVolume.toLocaleString()}
+                    </span>
                   </div>
-                  <div className="text-gray-600">
-                    평균 대비:{" "}
-                    <span className="font-semibold">
+                  <div className="text-sm sm:text-base text-gray-700">
+                    <span className="font-semibold">평균 대비:</span>{" "}
+                    <span className="font-bold text-gray-900">
                       {marketData.volumeIndicators.volumeRatio.toFixed(2)}배
                     </span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-xs text-gray-500">
+                <div className="flex flex-wrap gap-x-4 gap-y-2 items-center text-sm sm:text-base">
                   <div
-                    className={`font-medium ${
+                    className={`font-semibold ${
                       marketData.volumeIndicators.isHighVolume
                         ? "text-red-600"
-                        : "text-gray-600"
+                        : "text-gray-700"
                     }`}
                   >
-                    상태:{" "}
-                    {marketData.volumeIndicators.isHighVolume
-                      ? "🔴 고거래량"
-                      : "⚪ 정상"}
+                    <span className="font-medium text-gray-700">상태:</span>{" "}
+                    <span className="font-bold">
+                      {marketData.volumeIndicators.isHighVolume
+                        ? "🔴 고거래량"
+                        : "⚪ 정상"}
+                    </span>
                   </div>
-                  <div>
-                    추세:{" "}
-                    {marketData.volumeIndicators.volumeTrend === "increasing"
-                      ? "📈 증가"
-                      : marketData.volumeIndicators.volumeTrend === "decreasing"
-                      ? "📉 감소"
-                      : "➡️ 안정"}
+                  <div className="font-semibold text-gray-700">
+                    <span className="font-medium">추세:</span>{" "}
+                    <span className="font-bold">
+                      {marketData.volumeIndicators.volumeTrend === "increasing"
+                        ? "📈 증가"
+                        : marketData.volumeIndicators.volumeTrend ===
+                          "decreasing"
+                        ? "📉 감소"
+                        : "➡️ 안정"}
+                    </span>
                   </div>
                 </div>
                 {/* 범례 */}

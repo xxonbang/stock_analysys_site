@@ -83,6 +83,9 @@ const getSystemPrompt = (
 ## 기술적 분석 (과거 이력 ${historicalPeriod} vs 현재)
 ## 수급 분석
 ## 향후 전망 (${period} 기간)
+  - 긍정적 시나리오
+  - 부정적 시나리오
+  - 종합 전망
 ## 투자 의견
   - 과거 이력 기반 평가
   - 향후 전망 기간(${period}) 관점
@@ -451,21 +454,32 @@ ${formatExample}
     return reportsMap;
   } catch (error: any) {
     console.error("Error generating AI reports:", error);
+    console.error("Error details:", {
+      message: error?.message,
+      status: error?.status,
+      code: error?.code,
+      statusCode: error?.statusCode,
+      errorType: error?.constructor?.name,
+      fullError: error,
+    });
 
-    // Rate limit 오류 처리
-    if (
-      error?.status === 429 ||
-      error?.message?.includes("429") ||
-      error?.message?.includes("quota")
-    ) {
-      throw new Error(
-        "Gemini API 일일 사용량 한도에 도달했습니다. 잠시 후 다시 시도해주세요. (무료 티어: 하루 20회)"
-      );
+    // 원본 오류를 그대로 throw하여 fallback 로직이 오류 정보를 제대로 감지할 수 있도록 함
+    // (status, code 등의 속성이 유지되어야 fallback 로직이 재시도 가능한 오류인지 판단 가능)
+    if (error instanceof Error) {
+      // Error 객체인 경우 그대로 throw
+      throw error;
+    } else {
+      // 기타 오류인 경우 Error로 감싸되, 원본 속성 유지
+      const errorMessage = error?.message || String(error) || "알 수 없는 오류";
+      const wrappedError = new Error(errorMessage);
+      // 원본 오류의 속성들을 유지
+      if (error?.status !== undefined)
+        (wrappedError as any).status = error.status;
+      if (error?.code !== undefined) (wrappedError as any).code = error.code;
+      if (error?.statusCode !== undefined)
+        (wrappedError as any).statusCode = error.statusCode;
+      throw wrappedError;
     }
-
-    // 기타 오류
-    const errorMessage = error?.message || "알 수 없는 오류";
-    throw new Error(`AI 리포트 생성에 실패했습니다: ${errorMessage}`);
   }
 }
 

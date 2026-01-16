@@ -13,96 +13,63 @@ interface GeminiClientOptions {
 /**
  * Gemini API 키 목록 가져오기
  * 지원 형식:
- * - GOOGLE_API_KEY_01, GOOGLE_API_KEY_02, ... (01, 02 형식, 01이 default)
- * - GEMINI_API_KEY (하위 호환성, 있으면 사용하되 01보다 우선순위 낮음)
- * - GEMINI_API_KEY_01, GEMINI_API_KEY_02 (하위 호환성)
+ * - GEMINI_API_KEY_01, GEMINI_API_KEY_02 (01이 default)
+ * - GEMINI_API_KEY (하위 호환성, GEMINI_API_KEY_*가 없을 때만 사용)
  */
 export function getGeminiApiKeys(): string[] {
   const keys: string[] = [];
-  const foundKeys: Map<string, string> = new Map();
   
-  // 1. GOOGLE_API_KEY_* 패턴 찾기 (GOOGLE_API_KEY_01, GOOGLE_API_KEY_02 형식)
-  // GOOGLE_API_KEY_01이 default 키
-  for (const [envKey, envValue] of Object.entries(process.env)) {
-    if (envKey.startsWith('GOOGLE_API_KEY_') && envValue && envValue.trim() !== '') {
-      foundKeys.set(envKey, envValue.trim());
+  // GEMINI_API_KEY_01, GEMINI_API_KEY_02 찾기
+  const key01 = process.env.GEMINI_API_KEY_01?.trim();
+  const key02 = process.env.GEMINI_API_KEY_02?.trim();
+  
+  // 키를 재시도 순서대로 구성
+  // 1번 키 사용 시 오류 발생 → 2번 키로 재시도
+  // 2번 키 사용 시 오류 발생 → 1번 키로 재시도
+  // 모든 키를 다 시도했는데도 오류 발생 → 오류 처리 (callGeminiWithFallback에서 처리)
+  
+  if (key01) {
+    keys.push(key01);
+    // 1번 키 실패 시 → 2번 키로 재시도
+    if (key02) {
+      keys.push(key02);
     }
+  } else if (key02) {
+    // 1번 키가 없고 2번 키만 있는 경우
+    keys.push(key02);
   }
   
-  // 2. 하위 호환성: GEMINI_API_KEY_* 패턴 찾기
-  for (const [envKey, envValue] of Object.entries(process.env)) {
-    if (envKey.startsWith('GEMINI_API_KEY_') && envValue && envValue.trim() !== '') {
-      // GOOGLE_API_KEY_*가 없을 때만 사용
-      const googleKey = `GOOGLE_API_KEY_${envKey.replace('GEMINI_API_KEY_', '')}`;
-      if (!foundKeys.has(googleKey)) {
-        foundKeys.set(envKey, envValue.trim());
-      }
-    }
-  }
-  
-  // 3. 하위 호환성: GEMINI_API_KEY (단일 키)
-  const legacyKey = process.env.GEMINI_API_KEY;
-  if (legacyKey && legacyKey.trim() !== '' && foundKeys.size === 0) {
-    // GOOGLE_API_KEY_*가 없을 때만 사용
-    foundKeys.set('GEMINI_API_KEY', legacyKey.trim());
-  }
-  
-  // 키를 정렬하여 순서대로 추가
-  // 1. GOOGLE_API_KEY_* 키들을 숫자 순서대로 정렬 (GOOGLE_API_KEY_01, GOOGLE_API_KEY_02 순서)
-  const googleKeys = Array.from(foundKeys.entries())
-    .filter(([key]) => key.startsWith('GOOGLE_API_KEY_'))
-    .sort(([keyA], [keyB]) => {
-      // 숫자 추출하여 정렬 (01, 02 형식 올바르게 처리)
-      const suffixA = keyA.replace('GOOGLE_API_KEY_', '');
-      const suffixB = keyB.replace('GOOGLE_API_KEY_', '');
-      const numA = parseInt(suffixA, 10) || 0;
-      const numB = parseInt(suffixB, 10) || 0;
-      return numA - numB;
-    });
-  
-  // GOOGLE_API_KEY_01, GOOGLE_API_KEY_02 순서로 추가 (01이 default)
-  for (const [, value] of googleKeys) {
-    keys.push(value);
-  }
-  
-  // 2. 하위 호환성: GEMINI_API_KEY_* 키들 추가 (GOOGLE_API_KEY_*가 없을 때만)
-  if (googleKeys.length === 0) {
-    const geminiKeys = Array.from(foundKeys.entries())
-      .filter(([key]) => key.startsWith('GEMINI_API_KEY_'))
-      .sort(([keyA], [keyB]) => {
-        const suffixA = keyA.replace('GEMINI_API_KEY_', '');
-        const suffixB = keyB.replace('GEMINI_API_KEY_', '');
-        const numA = parseInt(suffixA, 10) || 0;
-        const numB = parseInt(suffixB, 10) || 0;
-        return numA - numB;
-      });
-    
-    for (const [, value] of geminiKeys) {
-      keys.push(value);
-    }
-    
-    // 3. 하위 호환성: GEMINI_API_KEY (단일 키)
-    if (foundKeys.has('GEMINI_API_KEY')) {
-      keys.push(foundKeys.get('GEMINI_API_KEY')!);
+  // GEMINI_API_KEY_*가 없으면 GEMINI_API_KEY (단일 키) 사용
+  if (keys.length === 0) {
+    const legacyKey = process.env.GEMINI_API_KEY?.trim();
+    if (legacyKey) {
+      keys.push(legacyKey);
     }
   }
   
   // 디버깅: 찾은 키 개수 및 순서 로그
   if (keys.length === 0) {
     console.warn('[Gemini] 환경 변수에서 API 키를 찾을 수 없습니다. 다음 형식을 확인하세요:');
-    console.warn('  - GOOGLE_API_KEY_01 (default, 필수)');
-    console.warn('  - GOOGLE_API_KEY_02, ... (fallback, 선택사항)');
-    console.warn('[Gemini] 현재 환경 변수 (GOOGLE_API_KEY_*, GEMINI_API_KEY_*):', 
+    console.warn('  - GEMINI_API_KEY_01 (default, 필수)');
+    console.warn('  - GEMINI_API_KEY_02 (fallback, 선택사항)');
+    console.warn('[Gemini] 현재 환경 변수 (GEMINI_API_KEY_*):', 
       Object.keys(process.env)
-        .filter(k => k.startsWith('GOOGLE_API_KEY_') || k.startsWith('GEMINI_API_KEY'))
+        .filter(k => k.startsWith('GEMINI_API_KEY'))
         .map(k => `${k}=${process.env[k] ? '***설정됨***' : 'undefined'}`)
     );
   } else {
-    const keyNames = googleKeys.length > 0
-      ? googleKeys.map(([key]) => key)
-      : Array.from(foundKeys.keys()).filter(k => k.startsWith('GEMINI_API_KEY'));
-    console.log(`[Gemini] ${keys.length}개의 API 키를 찾았습니다. 순서: ${keyNames.join(' → ')}`);
-    console.log(`[Gemini] Default 키: ${keyNames[0] || '없음'}`);
+    const keyNames: string[] = [];
+    if (key01) keyNames.push('GEMINI_API_KEY_01');
+    if (key02) keyNames.push('GEMINI_API_KEY_02');
+    if (keyNames.length === 0 && process.env.GEMINI_API_KEY) {
+      keyNames.push('GEMINI_API_KEY');
+    }
+    
+    console.log(`[Gemini] ${keys.length}개의 API 키를 찾았습니다. 재시도 순서: ${keyNames.join(' → ')}`);
+    console.log(`[Gemini] Primary 키: ${keyNames[0] || '없음'}`);
+    if (keyNames.length > 1) {
+      console.log(`[Gemini] Fallback 키: ${keyNames.slice(1).join(', ')}`);
+    }
   }
   
   return keys;
@@ -122,7 +89,7 @@ export async function callGeminiWithFallback<T>(
   const maxRetryRounds = options?.maxRetryRounds || 2; // 최대 2라운드 시도 (기본값)
   
   if (apiKeys.length === 0) {
-    throw new Error("GOOGLE_API_KEY_01 또는 GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다.");
+    throw new Error("GEMINI_API_KEY_01 또는 GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다.");
   }
   
   let lastError: Error | null = null;
@@ -160,25 +127,40 @@ export async function callGeminiWithFallback<T>(
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorCode = (error as any)?.code;
         const statusCode = (error as any)?.status;
+        const statusCodeAlt = (error as any)?.statusCode; // 일부 라이브러리는 statusCode 사용
         
+        // 상세 오류 정보 로깅
         console.error(
           `[Gemini] API key ${i + 1} (${keyLabel}${roundLabel}) + ${modelName} 모델 실패:`,
           errorMessage
         );
+        console.error(`[Gemini] 오류 상세 정보:`, {
+          errorCode,
+          statusCode,
+          statusCodeAlt,
+          errorMessage,
+          errorType: error?.constructor?.name,
+          hasStatus: (error as any)?.status !== undefined,
+          hasCode: (error as any)?.code !== undefined,
+          hasStatusCode: (error as any)?.statusCode !== undefined,
+        });
         
-        // 재시도 가능한 오류인지 확인
+        // 재시도 가능한 오류인지 확인 (더 많은 케이스 커버)
+        const finalStatusCode = statusCode || statusCodeAlt;
         const isRetryableError = 
           errorCode === 429 || // Rate limit
           errorCode === 503 || // Service unavailable
-          statusCode === 429 ||
-          statusCode === 503 ||
+          finalStatusCode === 429 ||
+          finalStatusCode === 503 ||
           errorMessage.toLowerCase().includes('429') ||
           errorMessage.toLowerCase().includes('503') ||
           errorMessage.toLowerCase().includes('quota') ||
           errorMessage.toLowerCase().includes('rate limit') ||
           errorMessage.toLowerCase().includes('resource exhausted') ||
           errorMessage.toLowerCase().includes('exceeded') ||
-          errorMessage.toLowerCase().includes('limit');
+          errorMessage.toLowerCase().includes('limit') ||
+          errorMessage.toLowerCase().includes('daily limit') ||
+          errorMessage.toLowerCase().includes('usage limit');
         
         lastError = error instanceof Error ? error : new Error(errorMessage);
         
