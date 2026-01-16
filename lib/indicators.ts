@@ -106,12 +106,15 @@ export function calculateVolatility(
     };
   }
   
-  const recentPrices = prices.slice(0, period);
+  // prices 배열은 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
+  const recentPrices = prices.slice(-period);
   const returns: number[] = [];
   
+  // 수익률 계산: (오늘 가격 - 어제 가격) / 어제 가격
+  // recentPrices는 "과거 → 최신" 순서이므로, i-1이 어제, i가 오늘
   for (let i = 1; i < recentPrices.length; i++) {
-    if (recentPrices[i] > 0) {
-      const returnRate = (recentPrices[i - 1] - recentPrices[i]) / recentPrices[i];
+    if (recentPrices[i - 1] > 0 && recentPrices[i] > 0) {
+      const returnRate = (recentPrices[i] - recentPrices[i - 1]) / recentPrices[i - 1];
       returns.push(returnRate);
     }
   }
@@ -258,9 +261,10 @@ export function detectSupportLevel(
     };
   }
   
+  // historicalData는 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
   // 최근 N일간의 저점들 추출
-  const lows = historicalData
-    .slice(0, period)
+  const recentData = historicalData.slice(-period);
+  const lows = recentData
     .map(d => d.low || d.close)
     .filter(l => l > 0);
   
@@ -300,7 +304,10 @@ export function calculateSupportResistance(
   currentPosition: 'near_resistance' | 'near_support' | 'middle'; // 현재 위치
 } {
   if (historicalData.length < period) {
-    const currentPrice = historicalData[0]?.close || 0;
+    // 데이터가 부족하면 전체 데이터 사용
+    const currentPrice = historicalData.length > 0 
+      ? historicalData[historicalData.length - 1].close 
+      : 0;
     return {
       resistanceLevels: [currentPrice],
       supportLevels: [currentPrice],
@@ -308,14 +315,17 @@ export function calculateSupportResistance(
     };
   }
   
-  const data = historicalData.slice(0, period);
+  // historicalData는 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
+  const recentData = historicalData.slice(-period);
   
   // 고점/저점 추출
-  const highs = data.map(d => d.high || d.close).filter(h => h > 0);
-  const lows = data.map(d => d.low || d.close).filter(l => l > 0);
+  const highs = recentData.map(d => d.high || d.close).filter(h => h > 0);
+  const lows = recentData.map(d => d.low || d.close).filter(l => l > 0);
   
   if (highs.length === 0 || lows.length === 0) {
-    const currentPrice = historicalData[0]?.close || 0;
+    const currentPrice = recentData.length > 0 
+      ? recentData[recentData.length - 1].close 
+      : 0;
     return {
       resistanceLevels: [currentPrice],
       supportLevels: [currentPrice],
@@ -331,7 +341,8 @@ export function calculateSupportResistance(
   const sortedLows = [...lows].sort((a, b) => a - b);
   const supportLevels = sortedLows.slice(0, 3);
   
-  const currentPrice = data[0].close;
+  // 현재가는 최신 데이터의 종가 (배열의 마지막 요소)
+  const currentPrice = recentData[recentData.length - 1].close;
   const nearestResistance = Math.min(...resistanceLevels);
   const nearestSupport = Math.max(...supportLevels);
   

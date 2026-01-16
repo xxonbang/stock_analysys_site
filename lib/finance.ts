@@ -224,8 +224,14 @@ export async function fetchStockData(
       throw new Error(`No historical data available for ${symbol}`);
     }
 
-    // 종가 배열 추출 (최신순) 및 검증
-    const closes = historical
+    // historical 데이터를 날짜 기준 정렬 (과거 → 최신 순서 보장)
+    // Yahoo Finance는 보통 "과거 → 최신" 순서이지만, 정렬하여 일관성 보장
+    const sortedHistorical = [...historical].sort((a, b) => 
+      a.date.getTime() - b.date.getTime()
+    );
+
+    // 종가 배열 추출 (과거 → 최신 순서) 및 검증
+    const closes = sortedHistorical
       .map((h) => {
         const close = h.close;
         if (close === null || close === undefined || isNaN(close) || close <= 0) {
@@ -240,7 +246,7 @@ export async function fetchStockData(
       throw new Error(`No valid close prices in historical data for ${symbol}`);
     }
 
-    const historicalData = historical
+    const historicalData = sortedHistorical
       .filter((h) => h.close !== null && h.close !== undefined && !isNaN(h.close) && h.close > 0)
       .map((h) => ({
         date: h.date.toISOString().split('T')[0],

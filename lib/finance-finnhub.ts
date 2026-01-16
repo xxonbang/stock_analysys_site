@@ -135,7 +135,8 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
         const lows = candles.l;
         const opens = candles.o;
         
-        historicalData = closes.map((close, index) => ({
+        // 날짜 기준 정렬 (과거 → 최신 순서 보장)
+        const historicalDataUnsorted = closes.map((close, index) => ({
           date: new Date(timestamps[index] * 1000).toISOString().split('T')[0],
           close,
           volume: volumes[index] || 0,
@@ -143,6 +144,10 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
           low: lows[index] || close,
           open: opens[index] || close,
         }));
+        
+        historicalData = historicalDataUnsorted.sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
       } else {
         throw new Error('No candle data from Finnhub');
       }
@@ -246,7 +251,8 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
       const opens = validHistorical.map((h) => h.open || h.close || 0);
       
       // Historical 데이터 구성 (Yahoo Finance fallback)
-      historicalData = closes.map((close, index) => ({
+      // 날짜 기준 정렬 (과거 → 최신 순서 보장)
+      const historicalDataUnsorted = closes.map((close, index) => ({
         date: new Date(timestamps[index] * 1000).toISOString().split('T')[0],
         close,
         volume: volumes[index] || 0,
@@ -254,9 +260,21 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
         low: lows[index] || close,
         open: opens[index] || close,
       }));
+      
+      // 날짜 기준 정렬 (과거 → 최신)
+      historicalData = historicalDataUnsorted.sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
     }
 
-    // 기술적 지표 계산
+    // closes 배열이 날짜 순서와 일치하도록 정렬
+    // historicalData는 이미 정렬되어 있으므로, closes도 같은 순서로 재구성
+    if (historicalData.length > 0) {
+      closes = historicalData.map(d => d.close);
+      volumes = historicalData.map(d => d.volume);
+    }
+    
+    // 기술적 지표 계산 (closes는 "과거 → 최신" 순서)
     const rsi = calculateRSI(closes, 14);
     const ma5 = calculateMA(closes, 5);
     const ma20 = calculateMA(closes, 20);

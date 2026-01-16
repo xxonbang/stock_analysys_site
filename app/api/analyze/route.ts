@@ -14,7 +14,13 @@ import {
   fetchVIX,
   fetchNews,
 } from "@/lib/finance-adapter";
-import { fetchKoreaSupplyDemand, calculateRSI, calculateMA, calculateDisparity, type StockData } from "@/lib/finance";
+import {
+  fetchKoreaSupplyDemand,
+  calculateRSI,
+  calculateMA,
+  calculateDisparity,
+  type StockData,
+} from "@/lib/finance";
 import {
   calculateETFPremium,
   calculateBollingerBands,
@@ -98,10 +104,11 @@ async function generateAIReportsBatch(
   period: string,
   historicalPeriod: string,
   analysisDate: string,
-  genAI: GoogleGenerativeAI
+  genAI: GoogleGenerativeAI,
+  modelName: string = "gemini-2.5-flash"
 ): Promise<Map<string, string>> {
-  // Gemini 모델명: gemini-2.5-flash 사용 (최신 모델)
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  // Gemini 모델명: 파라미터로 받은 모델 사용 (기본값: gemini-2.5-flash)
+  const model = genAI.getGenerativeModel({ model: modelName });
 
   const systemPrompt = getSystemPrompt(period, historicalPeriod, analysisDate);
 
@@ -122,12 +129,18 @@ async function generateAIReportsBatch(
         includedIndicators.push("ExchangeRate");
       if (marketData.news !== undefined && marketData.news.length > 0)
         includedIndicators.push("News");
-      if (marketData.etfPremium !== undefined) includedIndicators.push("ETFPremium");
-      if (marketData.bollingerBands !== undefined) includedIndicators.push("BollingerBands");
-      if (marketData.volatility !== undefined) includedIndicators.push("Volatility");
-      if (marketData.volumeIndicators !== undefined) includedIndicators.push("VolumeIndicators");
-      if (marketData.supportLevel !== undefined) includedIndicators.push("SupportLevel");
-      if (marketData.supportResistance !== undefined) includedIndicators.push("SupportResistance");
+      if (marketData.etfPremium !== undefined)
+        includedIndicators.push("ETFPremium");
+      if (marketData.bollingerBands !== undefined)
+        includedIndicators.push("BollingerBands");
+      if (marketData.volatility !== undefined)
+        includedIndicators.push("Volatility");
+      if (marketData.volumeIndicators !== undefined)
+        includedIndicators.push("VolumeIndicators");
+      if (marketData.supportLevel !== undefined)
+        includedIndicators.push("SupportLevel");
+      if (marketData.supportResistance !== undefined)
+        includedIndicators.push("SupportResistance");
 
       console.log(
         `[Gemini Prompt] Indicators included for ${symbol}:`,
@@ -191,7 +204,15 @@ ${
   marketData.news && marketData.news.length > 0
     ? `
 **최근 뉴스 (반드시 분석에 참고하세요)**:
-${marketData.news.slice(0, 3).map((n, i) => `${i + 1}. ${n.title}${n.date ? ` (${new Date(n.date).toLocaleDateString('ko-KR')})` : ''}`).join("\n")}
+${marketData.news
+  .slice(0, 3)
+  .map(
+    (n, i) =>
+      `${i + 1}. ${n.title}${
+        n.date ? ` (${new Date(n.date).toLocaleDateString("ko-KR")})` : ""
+      }`
+  )
+  .join("\n")}
 **중요**: 위 뉴스 내용을 반드시 종목 분석에 반영하고, 뉴스가 주가에 미칠 수 있는 영향을 분석에 포함해주세요.
 `
     : ""
@@ -199,8 +220,16 @@ ${marketData.news.slice(0, 3).map((n, i) => `${i + 1}. ${n.title}${n.date ? ` ($
 ${
   marketData.etfPremium
     ? `
-**ETF 괴리율**: ${marketData.etfPremium.premium >= 0 ? "+" : ""}${marketData.etfPremium.premium}%
-- 상태: ${marketData.etfPremium.isPremium ? "프리미엄" : marketData.etfPremium.isDiscount ? "할인" : "정상"}
+**ETF 괴리율**: ${marketData.etfPremium.premium >= 0 ? "+" : ""}${
+        marketData.etfPremium.premium
+      }%
+- 상태: ${
+        marketData.etfPremium.isPremium
+          ? "프리미엄"
+          : marketData.etfPremium.isDiscount
+          ? "할인"
+          : "정상"
+      }
 `
     : selectedIndicators?.etfPremium
     ? `
@@ -216,7 +245,9 @@ ${
 - 중심선: ${marketData.bollingerBands.middle.toLocaleString()}
 - 하단: ${marketData.bollingerBands.lower.toLocaleString()}
 - 밴드폭: ${marketData.bollingerBands.bandwidth}%
-- 현재 위치: ${(marketData.bollingerBands.position * 100).toFixed(1)}% (0=하단, 100=상단)
+- 현재 위치: ${(marketData.bollingerBands.position * 100).toFixed(
+        1
+      )}% (0=하단, 100=상단)
 `
     : ""
 }
@@ -226,7 +257,13 @@ ${
 **변동성 지표**:
 - 일일 변동성: ${marketData.volatility.volatility}%
 - 연율화 변동성: ${marketData.volatility.annualizedVolatility}%
-- 변동성 등급: ${marketData.volatility.volatilityRank === 'low' ? '낮음' : marketData.volatility.volatilityRank === 'medium' ? '보통' : '높음'}
+- 변동성 등급: ${
+        marketData.volatility.volatilityRank === "low"
+          ? "낮음"
+          : marketData.volatility.volatilityRank === "medium"
+          ? "보통"
+          : "높음"
+      }
 `
     : ""
 }
@@ -234,11 +271,23 @@ ${
   marketData.volumeIndicators
     ? `
 **거래량 지표**:
-- 현재 거래량: ${(marketData.volumeIndicators.currentVolume ?? marketData.volume).toLocaleString()}
+- 현재 거래량: ${(
+        marketData.volumeIndicators.currentVolume ?? marketData.volume
+      ).toLocaleString()}
 - 20일 평균 거래량: ${marketData.volumeIndicators.averageVolume.toLocaleString()}
-- 평균 대비 비율: ${marketData.volumeIndicators.volumeRatio}배 (현재 거래량이 평균의 ${marketData.volumeIndicators.volumeRatio}배)
-- 고거래량 여부: ${marketData.volumeIndicators.isHighVolume ? "예 (1.5배 이상)" : "아니오"}
-- 거래량 추세: ${marketData.volumeIndicators.volumeTrend === 'increasing' ? '증가' : marketData.volumeIndicators.volumeTrend === 'decreasing' ? '감소' : '안정'}
+- 평균 대비 비율: ${
+        marketData.volumeIndicators.volumeRatio
+      }배 (현재 거래량이 평균의 ${marketData.volumeIndicators.volumeRatio}배)
+- 고거래량 여부: ${
+        marketData.volumeIndicators.isHighVolume ? "예 (1.5배 이상)" : "아니오"
+      }
+- 거래량 추세: ${
+        marketData.volumeIndicators.volumeTrend === "increasing"
+          ? "증가"
+          : marketData.volumeIndicators.volumeTrend === "decreasing"
+          ? "감소"
+          : "안정"
+      }
 `
     : ""
 }
@@ -248,7 +297,9 @@ ${
 **눌림목 여부**:
 - 지지선 근처: ${marketData.supportLevel.isNearSupport ? "예" : "아니오"}
 - 지지선 레벨: ${marketData.supportLevel.supportLevel.toLocaleString()}
-- 지지선으로부터 거리: ${marketData.supportLevel.distanceFromSupport >= 0 ? "+" : ""}${marketData.supportLevel.distanceFromSupport}%
+- 지지선으로부터 거리: ${
+        marketData.supportLevel.distanceFromSupport >= 0 ? "+" : ""
+      }${marketData.supportLevel.distanceFromSupport}%
 `
     : ""
 }
@@ -256,9 +307,19 @@ ${
   marketData.supportResistance
     ? `
 **저항선/지지선**:
-- 저항선 레벨: ${marketData.supportResistance.resistanceLevels.map(l => l.toLocaleString()).join(", ")}
-- 지지선 레벨: ${marketData.supportResistance.supportLevels.map(l => l.toLocaleString()).join(", ")}
-- 현재 위치: ${marketData.supportResistance.currentPosition === 'near_resistance' ? '저항선 근처' : marketData.supportResistance.currentPosition === 'near_support' ? '지지선 근처' : '중간'}
+- 저항선 레벨: ${marketData.supportResistance.resistanceLevels
+        .map((l) => l.toLocaleString())
+        .join(", ")}
+- 지지선 레벨: ${marketData.supportResistance.supportLevels
+        .map((l) => l.toLocaleString())
+        .join(", ")}
+- 현재 위치: ${
+        marketData.supportResistance.currentPosition === "near_resistance"
+          ? "저항선 근처"
+          : marketData.supportResistance.currentPosition === "near_support"
+          ? "지지선 근처"
+          : "중간"
+      }
 `
     : ""
 }
@@ -410,7 +471,12 @@ ${formatExample}
 
 export async function POST(request: NextRequest) {
   const analysisStartTime = Date.now();
-  const stepTimings: { step: string; startTime: number; endTime?: number; duration?: number }[] = [];
+  const stepTimings: {
+    step: string;
+    startTime: number;
+    endTime?: number;
+    duration?: number;
+  }[] = [];
 
   try {
     const body: AnalyzeRequest = await request.json();
@@ -470,7 +536,10 @@ export async function POST(request: NextRequest) {
 
     // 단계 1: 데이터 수집 시작
     const dataCollectionStart = Date.now();
-    stepTimings.push({ step: 'dataCollection', startTime: dataCollectionStart });
+    stepTimings.push({
+      step: "dataCollection",
+      startTime: dataCollectionStart,
+    });
 
     let stockDataMap: Map<string, StockData>;
 
@@ -558,15 +627,21 @@ export async function POST(request: NextRequest) {
 
     // 단계 1: 데이터 수집 완료
     const dataCollectionEnd = Date.now();
-    const dataCollectionTiming = stepTimings.find(t => t.step === 'dataCollection');
+    const dataCollectionTiming = stepTimings.find(
+      (t) => t.step === "dataCollection"
+    );
     if (dataCollectionTiming) {
       dataCollectionTiming.endTime = dataCollectionEnd;
-      dataCollectionTiming.duration = dataCollectionEnd - dataCollectionTiming.startTime;
+      dataCollectionTiming.duration =
+        dataCollectionEnd - dataCollectionTiming.startTime;
     }
 
     // 단계 2: 기술적 지표 계산 시작
     const indicatorCalculationStart = Date.now();
-    stepTimings.push({ step: 'indicatorCalculation', startTime: indicatorCalculationStart });
+    stepTimings.push({
+      step: "indicatorCalculation",
+      startTime: indicatorCalculationStart,
+    });
 
     const results: AnalyzeResult[] = [];
     const stocksDataForAI: Array<{
@@ -602,13 +677,20 @@ export async function POST(request: NextRequest) {
 
       // Phase 1 & Phase 2 지표 계산
       // historicalData가 없으면 빈 배열로 처리
-      const historicalData = stockData.historicalData || [];
-      const closes = historicalData.length > 0 
-        ? historicalData.map((d) => d.close) 
-        : [];
-      const volumes = historicalData.length > 0
-        ? historicalData.map((d) => d.volume)
-        : [];
+      // historicalData는 "과거 → 최신" 순서로 정렬되어 있어야 함
+      let historicalData = stockData.historicalData || [];
+
+      // 날짜 기준 정렬 보장 (과거 → 최신)
+      if (historicalData.length > 0) {
+        historicalData = [...historicalData].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+      }
+
+      const closes =
+        historicalData.length > 0 ? historicalData.map((d) => d.close) : [];
+      const volumes =
+        historicalData.length > 0 ? historicalData.map((d) => d.volume) : [];
 
       // Phase 1 지표
       let etfPremium = undefined;
@@ -617,20 +699,28 @@ export async function POST(request: NextRequest) {
         // 일반 주식에는 NAV가 없으므로 ETF 괴리율 계산 불가능
         if (isKoreaStock) {
           try {
-            const { fetchKoreaETFInfoKRX } = await import('@/lib/krx-api');
+            const { fetchKoreaETFInfoKRX } = await import("@/lib/krx-api");
             const koreaSymbol = symbol.replace(".KS", "");
-            
+
             // ETF API 호출 (symbol과 일치하는 ETF만 반환하도록 수정됨)
-            const etfInfo = await fetchKoreaETFInfoKRX(koreaSymbol).catch(() => null);
-            
+            const etfInfo = await fetchKoreaETFInfoKRX(koreaSymbol).catch(
+              () => null
+            );
+
             // fetchKoreaETFInfoKRX는 symbol과 일치하는 ETF가 없으면 null을 반환
             // NAV가 있고 0보다 큰 경우에만 ETF 괴리율 계산
             // 일반 주식의 경우 etfInfo가 null이거나 nav가 없으므로 etfPremium은 undefined로 유지됨
             if (etfInfo && etfInfo.nav && etfInfo.nav > 0) {
               etfPremium = calculateETFPremium(stockData.price, etfInfo.nav);
-              console.log(`[Analyze API] ETF premium calculated for ${symbol}: ${etfPremium.premium}%`);
+              console.log(
+                `[Analyze API] ETF premium calculated for ${symbol}: ${etfPremium.premium}%`
+              );
             } else {
-              console.log(`[Analyze API] ${symbol} is not an ETF or NAV not available (etfInfo: ${etfInfo ? 'exists but no NAV' : 'null'})`);
+              console.log(
+                `[Analyze API] ${symbol} is not an ETF or NAV not available (etfInfo: ${
+                  etfInfo ? "exists but no NAV" : "null"
+                })`
+              );
             }
           } catch (error) {
             console.warn(`Failed to fetch ETF NAV for ${symbol}:`, error);
@@ -639,29 +729,40 @@ export async function POST(request: NextRequest) {
         // 미국 ETF는 별도 처리 필요 (현재는 한국 ETF만 지원)
       }
 
-      const bollingerBands = indicators.bollingerBands && closes.length > 0
-        ? calculateBollingerBands(closes, 20, 2, stockData.price)
-        : undefined;
+      const bollingerBands =
+        indicators.bollingerBands && closes.length > 0
+          ? calculateBollingerBands(closes, 20, 2, stockData.price)
+          : undefined;
 
-      const volatility = indicators.volatility && closes.length > 0
-        ? calculateVolatility(closes)
-        : undefined;
+      const volatility =
+        indicators.volatility && closes.length > 0
+          ? calculateVolatility(closes)
+          : undefined;
 
-      const volumeIndicators = indicators.volumeIndicators && volumes.length > 0
-        ? (() => {
-            console.log(`[Analyze API] Calculating volume indicators for ${symbol}: stockData.volume=${stockData.volume}, volumes.length=${volumes.length}, last volume in array=${volumes[volumes.length - 1]}`);
-            return calculateVolumeIndicators(volumes, 20, stockData.volume); // stockData.volume을 최신 거래량으로 전달
-          })()
-        : undefined;
+      const volumeIndicators =
+        indicators.volumeIndicators && volumes.length > 0
+          ? (() => {
+              console.log(
+                `[Analyze API] Calculating volume indicators for ${symbol}: stockData.volume=${
+                  stockData.volume
+                }, volumes.length=${volumes.length}, last volume in array=${
+                  volumes[volumes.length - 1]
+                }`
+              );
+              return calculateVolumeIndicators(volumes, 20, stockData.volume); // stockData.volume을 최신 거래량으로 전달
+            })()
+          : undefined;
 
       // Phase 2 지표
-      const supportLevel = indicators.supportLevel && historicalData.length > 0
-        ? detectSupportLevel(historicalData, stockData.price)
-        : undefined;
+      const supportLevel =
+        indicators.supportLevel && historicalData.length > 0
+          ? detectSupportLevel(historicalData, stockData.price)
+          : undefined;
 
-      const supportResistance = indicators.supportResistance && historicalData.length > 0
-        ? calculateSupportResistance(historicalData)
-        : undefined;
+      const supportResistance =
+        indicators.supportResistance && historicalData.length > 0
+          ? calculateSupportResistance(historicalData)
+          : undefined;
 
       // 기술적 지표 (RSI, MA, 이격도 등) 계산
       const rsiValue = calculateRSI(closes, 14);
@@ -669,7 +770,7 @@ export async function POST(request: NextRequest) {
       const ma20 = calculateMA(closes, 20);
       const ma60 = calculateMA(closes, 60);
       const ma120 = calculateMA(closes, 120);
-      
+
       const disparity = calculateDisparity(stockData.price, ma20);
 
       // 마켓 데이터 구성
@@ -715,20 +816,27 @@ export async function POST(request: NextRequest) {
         hasNews: marketData.news !== undefined,
       });
 
-      stocksDataForAI.push({ symbol, marketData, selectedIndicators: indicators });
+      stocksDataForAI.push({
+        symbol,
+        marketData,
+        selectedIndicators: indicators,
+      });
     }
 
     // 단계 2: 기술적 지표 계산 완료
     const indicatorCalculationEnd = Date.now();
-    const indicatorCalculationTiming = stepTimings.find(t => t.step === 'indicatorCalculation');
+    const indicatorCalculationTiming = stepTimings.find(
+      (t) => t.step === "indicatorCalculation"
+    );
     if (indicatorCalculationTiming) {
       indicatorCalculationTiming.endTime = indicatorCalculationEnd;
-      indicatorCalculationTiming.duration = indicatorCalculationEnd - indicatorCalculationTiming.startTime;
+      indicatorCalculationTiming.duration =
+        indicatorCalculationEnd - indicatorCalculationTiming.startTime;
     }
 
     // 단계 3: AI 분석 시작
     const aiAnalysisStart = Date.now();
-    stepTimings.push({ step: 'aiAnalysis', startTime: aiAnalysisStart });
+    stepTimings.push({ step: "aiAnalysis", startTime: aiAnalysisStart });
 
     // 모든 종목의 데이터를 모아서 한 번에 AI 리포트 생성 (단 1회 Gemini API 호출, fallback 지원)
     let aiReportsMap = new Map<string, string>();
@@ -740,18 +848,22 @@ export async function POST(request: NextRequest) {
         );
 
         // Fallback 지원으로 Gemini API 호출
-        const analysisDateStr = analysisDate || new Date().toISOString().split('T')[0];
+        const analysisDateStr =
+          analysisDate || new Date().toISOString().split("T")[0];
         aiReportsMap = await callGeminiWithFallback(
-          async (genAI: GoogleGenerativeAI) => {
+          async (genAI: GoogleGenerativeAI, modelName?: string) => {
             return await generateAIReportsBatch(
               stocksDataForAI,
               periodKorean,
               historicalPeriodKorean,
               analysisDateStr,
-              genAI
+              genAI,
+              modelName || "gemini-2.5-flash"
             );
           },
-          { model: "gemini-2.5-flash" }
+          {
+            model: "gemini-2.5-flash",
+          }
         );
       } catch (error) {
         console.error("Failed to generate AI reports:", error);
@@ -770,7 +882,7 @@ export async function POST(request: NextRequest) {
 
     // 단계 3: AI 분석 완료
     const aiAnalysisEnd = Date.now();
-    const aiAnalysisTiming = stepTimings.find(t => t.step === 'aiAnalysis');
+    const aiAnalysisTiming = stepTimings.find((t) => t.step === "aiAnalysis");
     if (aiAnalysisTiming) {
       aiAnalysisTiming.endTime = aiAnalysisEnd;
       aiAnalysisTiming.duration = aiAnalysisEnd - aiAnalysisTiming.startTime;
@@ -778,7 +890,10 @@ export async function POST(request: NextRequest) {
 
     // 단계 4: 리포트 생성 시작
     const reportGenerationStart = Date.now();
-    stepTimings.push({ step: 'reportGeneration', startTime: reportGenerationStart });
+    stepTimings.push({
+      step: "reportGeneration",
+      startTime: reportGenerationStart,
+    });
 
     // 결과 구성
     for (const { symbol, marketData } of stocksDataForAI) {
@@ -811,10 +926,13 @@ export async function POST(request: NextRequest) {
 
     // 단계 4: 리포트 생성 완료
     const reportGenerationEnd = Date.now();
-    const reportGenerationTiming = stepTimings.find(t => t.step === 'reportGeneration');
+    const reportGenerationTiming = stepTimings.find(
+      (t) => t.step === "reportGeneration"
+    );
     if (reportGenerationTiming) {
       reportGenerationTiming.endTime = reportGenerationEnd;
-      reportGenerationTiming.duration = reportGenerationEnd - reportGenerationTiming.startTime;
+      reportGenerationTiming.duration =
+        reportGenerationEnd - reportGenerationTiming.startTime;
     }
 
     // 전체 분석 시간 계산
@@ -822,26 +940,31 @@ export async function POST(request: NextRequest) {
 
     // 각 단계별 소요 시간을 클라이언트에 전달하기 위한 메타데이터 생성
     const stepDurations = {
-      dataCollection: stepTimings.find(t => t.step === 'dataCollection')?.duration || 0,
-      indicatorCalculation: stepTimings.find(t => t.step === 'indicatorCalculation')?.duration || 0,
-      aiAnalysis: stepTimings.find(t => t.step === 'aiAnalysis')?.duration || 0,
-      reportGeneration: stepTimings.find(t => t.step === 'reportGeneration')?.duration || 0,
+      dataCollection:
+        stepTimings.find((t) => t.step === "dataCollection")?.duration || 0,
+      indicatorCalculation:
+        stepTimings.find((t) => t.step === "indicatorCalculation")?.duration ||
+        0,
+      aiAnalysis:
+        stepTimings.find((t) => t.step === "aiAnalysis")?.duration || 0,
+      reportGeneration:
+        stepTimings.find((t) => t.step === "reportGeneration")?.duration || 0,
       total: totalAnalysisTime,
       stockCount: stocks.length,
     };
 
-    console.log('[Analyze API] Step timings:', stepDurations);
+    console.log("[Analyze API] Step timings:", stepDurations);
 
-    const response: AnalyzeResponse = { 
+    const response: AnalyzeResponse = {
       results,
       // 메타데이터를 응답 헤더에 포함 (클라이언트에서 활용 가능)
       _metadata: stepDurations,
     };
-    
+
     const responseObj = NextResponse.json(response);
     // 클라이언트에서 활용할 수 있도록 헤더에도 포함
-    responseObj.headers.set('X-Analysis-Timing', JSON.stringify(stepDurations));
-    
+    responseObj.headers.set("X-Analysis-Timing", JSON.stringify(stepDurations));
+
     return responseObj;
   } catch (error) {
     console.error("Error in analyze API:", error);
