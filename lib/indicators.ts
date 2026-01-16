@@ -301,6 +301,8 @@ export function calculateSupportResistance(
 ): {
   resistanceLevels: number[]; // 저항선 레벨들
   supportLevels: number[]; // 지지선 레벨들
+  resistanceDates: string[]; // 저항선 날짜들
+  supportDates: string[]; // 지지선 날짜들
   currentPosition: 'near_resistance' | 'near_support' | 'middle'; // 현재 위치
 } {
   if (historicalData.length < period) {
@@ -308,9 +310,14 @@ export function calculateSupportResistance(
     const currentPrice = historicalData.length > 0 
       ? historicalData[historicalData.length - 1].close 
       : 0;
+    const currentDate = historicalData.length > 0 
+      ? historicalData[historicalData.length - 1].date 
+      : '';
     return {
       resistanceLevels: [currentPrice],
       supportLevels: [currentPrice],
+      resistanceDates: [currentDate],
+      supportDates: [currentDate],
       currentPosition: 'middle',
     };
   }
@@ -318,28 +325,171 @@ export function calculateSupportResistance(
   // historicalData는 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
   const recentData = historicalData.slice(-period);
   
-  // 고점/저점 추출
-  const highs = recentData.map(d => d.high || d.close).filter(h => h > 0);
-  const lows = recentData.map(d => d.low || d.close).filter(l => l > 0);
+  // 디버깅: historicalData 구조 확인
+  if (recentData.length > 0) {
+    console.log('[calculateSupportResistance] Sample historicalData:', {
+      first: recentData[0],
+      last: recentData[recentData.length - 1],
+      hasHigh: recentData[0].high !== undefined,
+      hasLow: recentData[0].low !== undefined,
+      dateFormat: recentData[0].date
+    });
+  }
   
-  if (highs.length === 0 || lows.length === 0) {
+  // 고점/저점 추출 (날짜 정보 포함)
+  const highData = recentData
+    .map(d => ({
+      value: d.high !== undefined && d.high !== null ? d.high : d.close,
+      date: d.date || ''
+    }))
+    .filter(h => h.value > 0 && h.date);
+  
+  const lowData = recentData
+    .map(d => ({
+      value: d.low !== undefined && d.low !== null ? d.low : d.close,
+      date: d.date || ''
+    }))
+    .filter(l => l.value > 0 && l.date);
+  
+  // 디버깅: 추출된 데이터 확인
+  console.log('[calculateSupportResistance] Extracted data:', {
+    highDataCount: highData.length,
+    lowDataCount: lowData.length,
+    highDataSample: highData.slice(0, 3),
+    lowDataSample: lowData.slice(0, 3)
+  });
+  
+  if (highData.length === 0 || lowData.length === 0) {
     const currentPrice = recentData.length > 0 
       ? recentData[recentData.length - 1].close 
       : 0;
+    const currentDate = recentData.length > 0 
+      ? recentData[recentData.length - 1].date 
+      : '';
     return {
       resistanceLevels: [currentPrice],
       supportLevels: [currentPrice],
+      resistanceDates: [currentDate],
+      supportDates: [currentDate],
       currentPosition: 'middle',
     };
   }
   
-  // 저항선: 고점들 중 상위 3개
-  const sortedHighs = [...highs].sort((a, b) => b - a);
-  const resistanceLevels = sortedHighs.slice(0, 3);
+  // 저항선: 고점들 중 상위 3개 (날짜 정보 포함)
+  // 같은 가격이 여러 날짜에 있을 경우, 가장 최근 날짜를 우선 선택
+  const sortedHighs = [...highData].sort((a, b) => {
+    if (b.value !== a.value) {
+      return b.value - a.value; // 가격 내림차순
+    }
+    // 가격이 같으면 날짜 내림차순 (최신 날짜 우선)
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  });
   
-  // 지지선: 저점들 중 하위 3개
-  const sortedLows = [...lows].sort((a, b) => a - b);
-  const supportLevels = sortedLows.slice(0, 3);
+  // 중복 가격 제거 (같은 가격 중 가장 최근 날짜만 유지)
+  const uniqueHighs: Array<{ value: number; date: string }> = [];
+  const seenHighValues = new Set<number>();
+  for (const high of sortedHighs) {
+    const roundedValue = Math.round(high.value * 100) / 100;
+    if (!seenHighValues.has(roundedValue)) {
+      seenHighValues.add(roundedValue);
+      uniqueHighs.push(high);
+    }
+  }
+  
+  const top3Highs = uniqueHighs.slice(0, 3);
+  const resistanceLevels = top3Highs.map(h => Math.round(h.value * 100) / 100);
+  const resistanceDates = top3Highs.map((h, idx) => {
+    const dateStr = h.date || '';
+    // 날짜 형식 확인 및 정규화
+    if (!dateStr) {
+      console.error(`[calculateSupportResistance] Empty date for resistance level ${idx + 1}:`, h);
+      // 날짜가 없으면 recentData에서 해당 가격과 일치하는 날짜 찾기
+      const matchingData = recentData.find(d => {
+        const highValue = d.high !== undefined && d.high !== null ? d.high : d.close;
+        return Math.abs(highValue - h.value) < 0.01;
+      });
+      if (matchingData && matchingData.date) {
+        console.log(`[calculateSupportResistance] Found matching date from recentData:`, matchingData.date);
+        return matchingData.date;
+      }
+      return '';
+    }
+    // ISO 형식 (YYYY-MM-DD)이 아닌 경우 변환 시도
+    try {
+      const dateObj = new Date(dateStr);
+      if (isNaN(dateObj.getTime())) {
+        console.warn('[calculateSupportResistance] Invalid date format:', dateStr);
+        return '';
+      }
+      // ISO 형식으로 반환
+      return dateObj.toISOString().split('T')[0];
+    } catch (e) {
+      console.warn('[calculateSupportResistance] Date parsing error:', dateStr, e);
+      return dateStr; // 원본 반환
+    }
+  });
+  
+  // 지지선: 저점들 중 하위 3개 (날짜 정보 포함)
+  // 같은 가격이 여러 날짜에 있을 경우, 가장 최근 날짜를 우선 선택
+  const sortedLows = [...lowData].sort((a, b) => {
+    if (a.value !== b.value) {
+      return a.value - b.value; // 가격 오름차순
+    }
+    // 가격이 같으면 날짜 내림차순 (최신 날짜 우선)
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  });
+  
+  // 중복 가격 제거 (같은 가격 중 가장 최근 날짜만 유지)
+  const uniqueLows: Array<{ value: number; date: string }> = [];
+  const seenLowValues = new Set<number>();
+  for (const low of sortedLows) {
+    const roundedValue = Math.round(low.value * 100) / 100;
+    if (!seenLowValues.has(roundedValue)) {
+      seenLowValues.add(roundedValue);
+      uniqueLows.push(low);
+    }
+  }
+  
+  const bottom3Lows = uniqueLows.slice(0, 3);
+  const supportLevels = bottom3Lows.map(l => Math.round(l.value * 100) / 100);
+  const supportDates = bottom3Lows.map((l, idx) => {
+    const dateStr = l.date || '';
+    // 날짜 형식 확인 및 정규화
+    if (!dateStr) {
+      console.error(`[calculateSupportResistance] Empty date for support level ${idx + 1}:`, l);
+      // 날짜가 없으면 recentData에서 해당 가격과 일치하는 날짜 찾기
+      const matchingData = recentData.find(d => {
+        const lowValue = d.low !== undefined && d.low !== null ? d.low : d.close;
+        return Math.abs(lowValue - l.value) < 0.01;
+      });
+      if (matchingData && matchingData.date) {
+        console.log(`[calculateSupportResistance] Found matching date from recentData:`, matchingData.date);
+        return matchingData.date;
+      }
+      return '';
+    }
+    // ISO 형식 (YYYY-MM-DD)이 아닌 경우 변환 시도
+    try {
+      const dateObj = new Date(dateStr);
+      if (isNaN(dateObj.getTime())) {
+        console.warn('[calculateSupportResistance] Invalid date format:', dateStr);
+        return '';
+      }
+      // ISO 형식으로 반환
+      return dateObj.toISOString().split('T')[0];
+    } catch (e) {
+      console.warn('[calculateSupportResistance] Date parsing error:', dateStr, e);
+      return dateStr; // 원본 반환
+    }
+  });
+  
+  // 최종 결과 로깅
+  console.log('[calculateSupportResistance] Final result:', {
+    resistanceLevels,
+    resistanceDates,
+    supportLevels,
+    supportDates
+  });
   
   // 현재가는 최신 데이터의 종가 (배열의 마지막 요소)
   const currentPrice = recentData[recentData.length - 1].close;
@@ -355,8 +505,10 @@ export function calculateSupportResistance(
     'middle';
   
   return {
-    resistanceLevels: resistanceLevels.map(l => Math.round(l * 100) / 100),
-    supportLevels: supportLevels.map(l => Math.round(l * 100) / 100),
+    resistanceLevels,
+    supportLevels,
+    resistanceDates,
+    supportDates,
     currentPosition,
   };
 }

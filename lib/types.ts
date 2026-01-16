@@ -99,6 +99,8 @@ export interface AnalyzeResult {
     supportResistance?: {
       resistanceLevels: number[];
       supportLevels: number[];
+      resistanceDates: string[];
+      supportDates: string[];
       currentPosition: 'near_resistance' | 'near_support' | 'middle';
     };
   };
