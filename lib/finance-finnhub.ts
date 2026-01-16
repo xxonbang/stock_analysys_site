@@ -374,22 +374,17 @@ export async function fetchStocksDataBatchFinnhub(
 
 /**
  * 환율 데이터 조회 (USD/KRW)
- * Finnhub는 Forex 지원하지만 무료 플랜에서는 제한적일 수 있음
+ * 
+ * ⚠️ 현재 미구현 상태입니다.
+ * Finnhub Forex API는 다른 구조를 사용하므로
+ * finance-adapter.ts에서 자동으로 Yahoo Finance로 fallback됩니다.
  */
 export async function fetchExchangeRateFinnhub(): Promise<number | null> {
-  try {
-    // Finnhub Forex API 사용
-    const forex = await finnhubRequest<{ c: number }>('/forex/rates', {
-      base: 'USD',
-    });
-
-    // KRW 환율 찾기
-    // 실제 API 응답 구조에 따라 조정 필요
-    return null; // TODO: 실제 구현 필요
-  } catch (error) {
-    console.error('Error fetching exchange rate from Finnhub:', error);
-    return null;
-  }
+  // Finnhub Forex API는 다른 구조를 사용하므로
+  // 현재는 Yahoo Finance를 사용하도록 명시적으로 null 반환
+  // finance-adapter.ts에서 자동으로 Yahoo Finance로 fallback됨
+  console.warn('[Finnhub] Exchange rate API not implemented, falling back to Yahoo Finance');
+  return null;
 }
 
 /**

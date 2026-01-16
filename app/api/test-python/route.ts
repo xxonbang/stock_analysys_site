@@ -10,6 +10,13 @@ import { join } from "path";
  * 프로덕션 환경에서는 사용하지 않습니다.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // 프로덕션 환경에서 비활성화
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json(
+      { error: "This API is only available in development mode" },
+      { status: 403 }
+    );
+  }
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get("symbol") || "AAPL";
 

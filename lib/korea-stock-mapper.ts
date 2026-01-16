@@ -1,5 +1,9 @@
 /**
  * 한국 주식 이름을 티커로 변환하는 유틸리티
+ * 
+ * 하이브리드 방식 지원:
+ * 1. 정적 매핑 (하드코딩된 주요 종목)
+ * 2. 동적 매핑 (Python 스크립트를 통한 전체 종목 검색)
  */
 
 // 주요 한국 주식 이름-티커 매핑
@@ -65,5 +69,46 @@ export function normalizeStockSymbol(symbol: string): string {
   }
 
   // 변환 실패 시 원본 반환 (미국 주식 등)
+  return symbol;
+}
+
+/**
+ * 주식 심볼을 정규화 (하이브리드 방식: 정적 매핑 + 동적 검색)
+ * 
+ * @param symbol 주식 심볼 또는 이름
+ * @param useDynamicMapping 동적 매핑 사용 여부 (기본값: true)
+ * @returns 정규화된 티커 심볼
+ */
+export async function normalizeStockSymbolHybrid(
+  symbol: string,
+  useDynamicMapping: boolean = true
+): Promise<string> {
+  // 1. 이미 티커 형식인 경우
+  if (/^\d{6}$/.test(symbol) || symbol.includes('.KS')) {
+    return symbol.includes('.KS') ? symbol : `${symbol}.KS`;
+  }
+
+  // 2. 정적 매핑 확인 (빠른 조회)
+  const staticConverted = convertKoreaStockNameToTicker(symbol);
+  if (staticConverted) {
+    return staticConverted;
+  }
+
+  // 3. 동적 매핑 시도 (한글 이름인 경우만)
+  if (useDynamicMapping && /[가-힣]/.test(symbol)) {
+    try {
+      const { normalizeStockSymbolDynamic } = await import('./korea-stock-mapper-dynamic');
+      const dynamicConverted = await normalizeStockSymbolDynamic(symbol);
+      // 동적 매핑이 원본과 다르면 성공
+      if (dynamicConverted !== symbol) {
+        return dynamicConverted;
+      }
+    } catch (error) {
+      // 동적 매핑 실패는 무시하고 원본 반환
+      console.warn(`[Stock Mapper] Dynamic mapping failed for ${symbol}, using original:`, error);
+    }
+  }
+
+  // 4. Fallback: 원본 반환
   return symbol;
 }

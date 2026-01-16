@@ -10,7 +10,7 @@ import type { StockData } from './finance';
  * 숫자 값 검증 (null, undefined, NaN, 음수 체크)
  */
 export function validateNumber(
-  value: any,
+  value: unknown,
   fieldName: string,
   allowZero: boolean = true,
   allowNegative: boolean = false
@@ -39,55 +39,85 @@ export function validateNumber(
 /**
  * StockData 검증
  */
-export async function validateStockData(data: any): Promise<StockData> {
+interface RawStockData {
+  symbol?: string;
+  price?: number;
+  change?: number;
+  changePercent?: number;
+  volume?: number;
+  marketCap?: number;
+  rsi?: number;
+  movingAverages?: {
+    ma5?: number;
+    ma20?: number;
+    ma60?: number;
+    ma120?: number;
+  };
+  disparity?: number;
+  historicalData?: Array<{
+    date?: string;
+    close?: number;
+    volume?: number;
+    high?: number;
+    low?: number;
+    open?: number;
+  }>;
+}
+
+export async function validateStockData(data: unknown): Promise<StockData> {
+  if (!data || typeof data !== 'object') {
+    throw new Error('StockData is not an object');
+  }
+  
+  const rawData = data as RawStockData;
   if (!data || typeof data !== 'object') {
     throw new Error('StockData is not an object');
   }
 
   // 필수 필드 검증
-  const symbol = String(data.symbol || '');
+  const symbol = String(rawData.symbol || '');
   if (!symbol) {
     throw new Error('Symbol is required');
   }
 
-  const price = validateNumber(data.price, 'price', false, false);
-  const change = validateNumber(data.change, 'change', true, true);
-  const changePercent = validateNumber(data.changePercent, 'changePercent', true, true);
-  const volume = validateNumber(data.volume, 'volume', true, false);
+  const price = validateNumber(rawData.price, 'price', false, false);
+  const change = validateNumber(rawData.change, 'change', true, true);
+  const changePercent = validateNumber(rawData.changePercent, 'changePercent', true, true);
+  const volume = validateNumber(rawData.volume, 'volume', true, false);
   
   // RSI 검증 (0-100 범위)
-  const rsi = validateNumber(data.rsi, 'rsi', true, false);
+  const rsi = validateNumber(rawData.rsi, 'rsi', true, false);
   if (rsi < 0 || rsi > 100) {
     console.warn(`RSI out of normal range: ${rsi} (expected 0-100)`);
   }
 
   // Moving Averages 검증
-  if (!data.movingAverages || typeof data.movingAverages !== 'object') {
+  if (!rawData.movingAverages || typeof rawData.movingAverages !== 'object') {
     throw new Error('movingAverages is required');
   }
 
-  const ma5 = validateNumber(data.movingAverages.ma5, 'ma5', false, false);
-  const ma20 = validateNumber(data.movingAverages.ma20, 'ma20', false, false);
-  const ma60 = validateNumber(data.movingAverages.ma60, 'ma60', false, false);
-  const ma120 = validateNumber(data.movingAverages.ma120, 'ma120', false, false);
+  const ma5 = validateNumber(rawData.movingAverages.ma5, 'ma5', false, false);
+  const ma20 = validateNumber(rawData.movingAverages.ma20, 'ma20', false, false);
+  const ma60 = validateNumber(rawData.movingAverages.ma60, 'ma60', false, false);
+  const ma120 = validateNumber(rawData.movingAverages.ma120, 'ma120', false, false);
 
   // Disparity 검증 (일반적으로 50-200 범위)
-  const disparity = validateNumber(data.disparity, 'disparity', true, false);
+  const disparity = validateNumber(rawData.disparity, 'disparity', true, false);
   if (disparity < 0 || disparity > 500) {
     console.warn(`Disparity out of normal range: ${disparity} (expected 50-200)`);
   }
 
   // Historical Data 검증
-  if (!Array.isArray(data.historicalData)) {
+  if (!Array.isArray(rawData.historicalData)) {
     throw new Error('historicalData must be an array');
   }
 
-  if (data.historicalData.length === 0) {
+  if (rawData.historicalData.length === 0) {
     throw new Error('historicalData is empty');
   }
 
   // Historical 데이터 포인트 검증
-  const validatedHistoricalData = data.historicalData.map((item: any, index: number) => {
+  const validatedHistoricalData = rawData.historicalData.map((item: unknown, index: number) => {
     if (!item || typeof item !== 'object') {
       throw new Error(`historicalData[${index}] is not an object`);
     }
@@ -126,7 +156,7 @@ export async function validateStockData(data: any): Promise<StockData> {
     change,
     changePercent,
     volume,
-    marketCap: data.marketCap ? validateNumber(data.marketCap, 'marketCap', true, false) : undefined,
+    marketCap: rawData.marketCap ? validateNumber(rawData.marketCap, 'marketCap', true, false) : undefined,
     rsi,
     movingAverages: {
       ma5,

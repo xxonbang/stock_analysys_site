@@ -13,16 +13,43 @@
 import type { StockData } from './finance';
 import { spawn } from 'child_process';
 import { join } from 'path';
-import { normalizeStockSymbol } from './korea-stock-mapper';
+import { normalizeStockSymbol, normalizeStockSymbolHybrid } from './korea-stock-mapper';
 import { validateStockData } from './data-validator';
 import { metrics } from './data-metrics';
+import { logger, toAppError } from './utils';
 
 /**
  * Python 스크립트를 실행하여 주식 데이터 수집
  * @param symbol 주식 티커 (예: "AAPL", "005930.KS")
  * @param period 분석 기간 (예: "1m", "3m", "1y")
  */
-async function runPythonScript(symbol: string, period: string = '1m'): Promise<any> {
+interface PythonScriptResult {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  marketCap?: number;
+  rsi: number;
+  movingAverages: {
+    ma5: number;
+    ma20: number;
+    ma60: number;
+    ma120: number;
+  };
+  disparity: number;
+  historicalData: Array<{
+    date: string;
+    close: number;
+    volume: number;
+    high?: number;
+    low?: number;
+    open?: number;
+  }>;
+  error?: string;
+}
+
+async function runPythonScript(symbol: string, period: string = '1m'): Promise<PythonScriptResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
     const pythonProcess = spawn('python3', [scriptPath, symbol, period]);
@@ -111,7 +138,7 @@ export async function fetchStockDataVercel(symbol: string, period: string = '1m'
   const startTime = Date.now();
   
   try {
-    let data: any;
+    let data: PythonScriptResult;
 
     // Vercel 환경에서는 Serverless Function 사용
     if (process.env.VERCEL) {
@@ -138,16 +165,16 @@ export async function fetchStockDataVercel(symbol: string, period: string = '1m'
       });
       return validatedData;
     } catch (validationError) {
-      const errorMessage = validationError instanceof Error ? validationError.message : String(validationError);
-      metrics.error(symbol, 'Python (Vercel)', errorMessage, { period });
-      console.error(`[Data Validation] Failed to validate stock data for ${symbol}:`, errorMessage);
-      throw new Error(`Invalid stock data received: ${errorMessage}`);
+      const appError = toAppError(validationError, 'Invalid stock data received');
+      metrics.error(symbol, 'Python (Vercel)', appError.message, { period });
+      logger.error(`[Data Validation] Failed to validate stock data for ${symbol}:`, appError.message);
+      throw appError;
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    metrics.error(symbol, 'Python (Vercel)', errorMessage);
-    console.error(`Error fetching Python data for ${symbol}:`, error);
-    throw new Error(`Failed to fetch stock data for ${symbol}: ${errorMessage}`);
+    const appError = toAppError(error, `Failed to fetch stock data for ${symbol}`);
+    metrics.error(symbol, 'Python (Vercel)', appError.message);
+    logger.error(`Error fetching Python data for ${symbol}:`, appError);
+    throw appError;
   }
 }
 
@@ -167,30 +194,18 @@ export async function fetchStocksDataBatchVercel(
   // 기본적으로 동적 매핑 활성화 (USE_DYNAMIC_TICKER_MAPPING=false로 비활성화 가능)
   const useDynamicMapping = process.env.USE_DYNAMIC_TICKER_MAPPING !== 'false';
   
-  console.log(`[Symbol Normalization] Using ${useDynamicMapping ? 'hybrid (static + dynamic)' : 'static only'} mapping`);
+  logger.debug(`[Symbol Normalization] Using ${useDynamicMapping ? 'hybrid (static + dynamic)' : 'static only'} mapping`);
   
-  // 심볼 정규화 (오류 발생 시 기존 방식으로 fallback)
+  // 심볼 정규화 (통합된 하이브리드 방식 사용)
   const normalizedSymbols = await Promise.all(
     symbols.map(async (symbol) => {
       let normalized: string;
       
       try {
-        if (useDynamicMapping) {
-          // 하이브리드 방식: 하드코딩 + 동적 검색
-          try {
-            const { normalizeStockSymbolDynamic } = await import('./korea-stock-mapper-dynamic');
-            normalized = await normalizeStockSymbolDynamic(symbol);
-          } catch (dynamicError) {
-            // 동적 매핑 실패 시 기존 방식으로 fallback
-            console.warn(`[Symbol Normalization] Dynamic mapping failed for ${symbol}, using static mapping:`, dynamicError);
-            normalized = normalizeStockSymbol(symbol);
-          }
-        } else {
-          // 기존 방식 (하드코딩만)
-          normalized = normalizeStockSymbol(symbol);
-        }
+        // 통합된 하이브리드 방식 사용 (정적 + 동적)
+        normalized = await normalizeStockSymbolHybrid(symbol, useDynamicMapping);
       } catch (error) {
-        // 전체 정규화 실패 시 원본 사용
+        // 정규화 실패 시 원본 사용
         console.error(`[Symbol Normalization] Failed to normalize ${symbol}, using original:`, error);
         normalized = symbol;
       }
@@ -206,25 +221,38 @@ export async function fetchStocksDataBatchVercel(
     })
   );
 
-  // Vercel Serverless Functions는 병렬 처리 가능
-  // 하지만 안정성을 위해 약간의 딜레이 추가
-  for (let i = 0; i < normalizedSymbols.length; i++) {
-    const { original, normalized } = normalizedSymbols[i];
+  // 병렬 처리로 성능 개선 (Rate limit 고려하여 배치 처리)
+  // 배치 크기: 한 번에 최대 5개 종목 처리
+  const BATCH_SIZE = 5;
+  const BATCH_DELAY = 500; // 배치 간 딜레이 (ms)
 
-    // 요청 간 딜레이 (첫 번째 제외)
-    if (i > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  for (let i = 0; i < normalizedSymbols.length; i += BATCH_SIZE) {
+    const batch = normalizedSymbols.slice(i, i + BATCH_SIZE);
+    
+    // 배치 내에서는 병렬 처리
+    const batchPromises = batch.map(async ({ original, normalized }) => {
+      try {
+        const stockData = await fetchStockDataVercel(normalized, period);
+        return { original, stockData };
+      } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`[fetchStocksDataBatchVercel] Failed to fetch data for ${original} (${normalized}):`, errorMessage);
+        return null;
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    
+    // 성공한 결과만 저장
+    for (const result of batchResults) {
+      if (result) {
+        results.set(result.original, result.stockData);
+      }
     }
 
-    try {
-      // 정규화된 티커로 데이터 수집
-      const stockData = await fetchStockDataVercel(normalized, period);
-      // 원본 심볼로 저장 (사용자가 입력한 이름 유지)
-      results.set(original, stockData);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[fetchStocksDataBatchVercel] Failed to fetch data for ${original} (${normalized}):`, errorMessage);
-      // 실패해도 계속 진행 (다른 종목은 시도)
+    // 마지막 배치가 아니면 딜레이 추가 (Rate limit 방지)
+    if (i + BATCH_SIZE < normalizedSymbols.length) {
+      await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY));
     }
   }
 
