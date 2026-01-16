@@ -24,13 +24,29 @@ const DialogContext = React.createContext<{
 const Dialog = ({ open, onOpenChange, children }: DialogProps) => {
   React.useEffect(() => {
     if (open) {
+      // 스크롤바 너비 계산
+      const scrollbarWidth =
+        window.innerWidth - document.documentElement.clientWidth;
+      
+      // 현재 body의 padding-right 값 저장 (이미 설정된 경우를 위해)
+      const originalPaddingRight = document.body.style.paddingRight;
+      
+      // body에 overflow hidden 적용 및 스크롤바 너비만큼 padding 추가
       document.body.style.overflow = "hidden";
+      if (scrollbarWidth > 0) {
+        document.body.style.paddingRight = `${scrollbarWidth}px`;
+      }
+      
+      return () => {
+        // 원래 상태로 복원
+        document.body.style.overflow = "";
+        document.body.style.paddingRight = originalPaddingRight;
+      };
     } else {
+      // Dialog가 닫힐 때도 원래 상태로 복원
       document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
     }
-    return () => {
-      document.body.style.overflow = "";
-    };
   }, [open]);
 
   return (

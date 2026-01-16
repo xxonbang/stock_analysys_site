@@ -330,14 +330,18 @@ export default function ReportPage() {
                 <div className="text-xl sm:text-2xl font-bold">
                   {marketData.rsi}
                 </div>
-                <div className={`text-xs sm:text-sm mt-1 ${rsiStatus.color}`}>
+                <div
+                  className={`text-sm font-bold sm:text-sm mt-1 ${rsiStatus.color}`}
+                >
                   {rsiStatus.text}
                 </div>
                 {/* 범례 */}
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="과매수 (≥70)"
                         description="주가가 너무 많이 올라서 매도 압력이 커질 수 있는 상태입니다. 상승 추세가 약해질 가능성이 있습니다."
@@ -437,7 +441,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="과열 구간 (>105%)"
                         description="현재가가 20일 이동평균선보다 5% 이상 높은 상태입니다. 주가가 과도하게 상승했을 수 있어 하락 위험이 있습니다."
@@ -516,7 +522,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="매수 (+)"
                         description="해당 투자자 집단(기관, 외국인, 개인)이 주식을 사들인 상태입니다. 매수세가 강하면 주가 상승에 도움이 될 수 있습니다."
@@ -560,7 +568,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="공포 구간 (>30)"
                         description="시장 참여자들이 공포 상태에 있어 주가가 더 하락할 수 있습니다. 하지만 과도한 하락 후 반등 기회가 생길 수도 있습니다."
@@ -641,7 +651,9 @@ export default function ReportPage() {
                     <div className="mt-3 pt-2 border-t border-gray-200">
                       <div className="text-[10px] text-gray-500">
                         <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                          <span className="font-medium text-gray-600">상태 범례:</span>
+                          <span className="font-medium text-gray-600">
+                            상태 범례:
+                          </span>
                           <LegendTooltip
                             label="프리미엄 (>0%)"
                             description="ETF 시장 가격이 실제 가치(NAV)보다 높은 상태입니다. ETF를 비싸게 사는 것이므로 매수 시 주의가 필요합니다."
@@ -715,7 +727,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">위치 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        위치 범례:
+                      </span>
                       <LegendTooltip
                         label="상단 근처 (80-100%)"
                         description="주가가 볼린저 밴드 상단선 근처에 있습니다. 주가가 높은 수준이므로 하락 압력이 있을 수 있습니다."
@@ -783,7 +797,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">등급 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        등급 범례:
+                      </span>
                       <LegendTooltip
                         label="낮음 (<15%)"
                         description="주가 변동이 작아 안정적인 상태입니다. 큰 손실 위험은 낮지만 큰 수익 기회도 제한적일 수 있습니다."
@@ -873,7 +889,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center mb-1.5">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="고거래량 (≥1.5배)"
                         description="현재 거래량이 평균보다 1.5배 이상 많습니다. 많은 투자자들이 관심을 보이고 있어 주가 변동이 클 수 있습니다."
@@ -888,7 +906,9 @@ export default function ReportPage() {
                       </LegendTooltip>
                     </div>
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">추세 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        추세 범례:
+                      </span>
                       <LegendTooltip
                         label="증가"
                         description="최근 거래량이 증가하고 있습니다. 관심이 높아지고 있어 주가 변동이 커질 수 있습니다."
@@ -949,7 +969,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">상태 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        상태 범례:
+                      </span>
                       <LegendTooltip
                         label="지지선 근처 (±5% 이내)"
                         description="주가가 과거 저점(지지선) 근처에 있습니다. 지지선에서 반등할 가능성이 있어 매수 기회일 수 있습니다."
@@ -1189,7 +1211,9 @@ export default function ReportPage() {
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
                     <div className="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                      <span className="font-medium text-gray-600">위치 범례:</span>
+                      <span className="font-medium text-gray-600">
+                        위치 범례:
+                      </span>
                       <LegendTooltip
                         label="저항선 근처 (3% 이내)"
                         description="주가가 과거 고점(저항선) 근처에 있습니다. 저항선에서 하락 압력을 받을 수 있어 주의가 필요합니다."

@@ -12,6 +12,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { LoadingOverlay } from "@/components/loading-overlay";
 import { IndicatorInfoButton } from "@/components/indicator-info-button";
 import { StockAutocomplete } from "@/components/stock-autocomplete";
@@ -45,15 +51,16 @@ export default function HomePage() {
     fearGreed: true,
     exchangeRate: true,
     // Phase 1 지표
-    etfPremium: false,
-    bollingerBands: false,
-    volatility: false,
-    volumeIndicators: false,
+    etfPremium: true,
+    bollingerBands: true,
+    volatility: true,
+    volumeIndicators: true,
     // Phase 2 지표
-    supportLevel: false,
-    supportResistance: false,
+    supportLevel: true,
+    supportResistance: true,
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [showLoginAlert, setShowLoginAlert] = useState(false);
 
   const addStockInput = () => {
     if (stocks.length < 5) {
@@ -95,11 +102,7 @@ export default function HomePage() {
 
     // 로그인 체크
     if (!isAuthenticated) {
-      const confirmed = window.confirm("로그인 해주세요.");
-      if (confirmed) {
-        // 로그인 버튼으로 스크롤 및 하이라이트 효과
-        window.dispatchEvent(new Event("highlightLogin"));
-      }
+      setShowLoginAlert(true);
       return;
     }
 
@@ -744,6 +747,77 @@ export default function HomePage() {
           </Button>
         </form>
       </div>
+
+      {/* 로그인 안내 팝업 */}
+      <Dialog open={showLoginAlert} onOpenChange={setShowLoginAlert}>
+        <DialogContent className="w-[calc(100%-2rem)] sm:w-full sm:max-w-md mx-4 sm:mx-0">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md">
+                <svg
+                  className="w-6 h-6 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+              </div>
+              <DialogTitle className="mb-0">로그인 필요</DialogTitle>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">
+              분석 기능을 사용하려면 로그인이 필요합니다
+            </p>
+          </DialogHeader>
+          <div className="px-6 pb-6 space-y-4">
+            <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <svg
+                className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              <p className="text-sm text-blue-800 font-medium flex-1 leading-relaxed">
+                종목 분석 기능은 로그인 후 이용하실 수 있습니다.
+                <br />
+                로그인 버튼을 클릭하여 로그인해주세요.
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowLoginAlert(false)}
+                className="min-w-[80px]"
+              >
+                취소
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowLoginAlert(false);
+                  // 로그인 버튼으로 스크롤 및 하이라이트 효과
+                  window.dispatchEvent(new Event("highlightLogin"));
+                }}
+                className="min-w-[100px] bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-md"
+              >
+                로그인하기
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

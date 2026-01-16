@@ -2,6 +2,13 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -190,12 +197,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // 자동 로그아웃 안내 팝업 컴포넌트
 function AutoLogoutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-2xl max-w-md w-[calc(100%-2rem)] p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="w-[calc(100%-2rem)] sm:w-full sm:max-w-md mx-4 sm:mx-0">
+        <DialogHeader>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-md">
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <DialogTitle className="mb-0">자동 로그아웃</DialogTitle>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            10분간 활동이 없어 자동으로 로그아웃되었습니다
+          </p>
+        </DialogHeader>
+        <div className="px-6 pb-6 space-y-4">
+          <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
             <svg
-              className="w-6 h-6 text-yellow-600"
+              className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -204,27 +234,26 @@ function AutoLogoutDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13 7l-4.928-4.928c-1.732-1.732-3.464.192-3.464 1.732v13.856c0 1.54 1.732 3.464 3.464 1.732L13 17l4.928-4.928c1.732-1.732-.192-3.464-1.732-3.464H4.072z"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
+            <p className="text-sm text-orange-800 font-medium flex-1 leading-relaxed">
+              보안을 위해 10분간 활동이 없으면 자동으로 로그아웃됩니다.
+              <br />
+              다시 로그인해주세요.
+            </p>
           </div>
-          <h3 className="text-lg font-bold text-gray-900">자동 로그아웃</h3>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              onClick={onClose}
+              className="min-w-[100px] bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 shadow-md"
+            >
+              확인
+            </Button>
+          </div>
         </div>
-        <p className="text-sm text-gray-600 leading-relaxed">
-          10분간 활동이 없어 자동으로 로그아웃되었습니다.
-          <br />
-          다시 로그인해주세요.
-        </p>
-        <div className="flex justify-end pt-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium"
-          >
-            확인
-          </button>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

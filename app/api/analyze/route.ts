@@ -764,13 +764,18 @@ export async function POST(request: NextRequest) {
           ? (() => {
               const result = calculateSupportResistance(historicalData);
               // 디버깅: 날짜 정보 확인
-              console.log(`[Analyze API] SupportResistance dates for ${symbol}:`, {
-                resistanceDates: result.resistanceDates,
-                supportDates: result.supportDates,
-                resistanceLevels: result.resistanceLevels,
-                supportLevels: result.supportLevels,
-                historicalDataSample: historicalData.slice(0, 3).map(d => ({ date: d.date, high: d.high, low: d.low }))
-              });
+              console.log(
+                `[Analyze API] SupportResistance dates for ${symbol}:`,
+                {
+                  resistanceDates: result.resistanceDates,
+                  supportDates: result.supportDates,
+                  resistanceLevels: result.resistanceLevels,
+                  supportLevels: result.supportLevels,
+                  historicalDataSample: historicalData
+                    .slice(0, 3)
+                    .map((d) => ({ date: d.date, high: d.high, low: d.low })),
+                }
+              );
               return result;
             })()
           : undefined;
