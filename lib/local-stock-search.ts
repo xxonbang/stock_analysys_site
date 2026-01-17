@@ -76,9 +76,12 @@ async function loadSymbols(): Promise<SymbolsJSON> {
           { name: 'name', weight: 0.8 }, // 종목명 우선
           { name: 'code', weight: 0.2 },  // 종목코드 보조
         ],
-        threshold: 0.4, // 유사도 임계값 (낮을수록 정확한 매칭)
+        threshold: 0.4, // 유사도 임계값 (낮을수록 정확한 매칭, 0.3~0.4 권장)
         includeScore: true,
         minMatchCharLength: 1,
+        ignoreLocation: true, // 문자열 위치 무시 (어디에 있든 매칭)
+        ignoreFieldNorm: true, // 필드 정규화 무시 (짧은 검색어도 매칭)
+        findAllMatches: true, // 모든 매칭 찾기
       };
 
       fuseKorea = new Fuse(data.korea.stocks, fuseOptions);
@@ -114,6 +117,7 @@ export async function searchKoreaStocksLocal(query: string): Promise<StockSugges
     }
 
     const trimmedQuery = query.trim();
+    const lowerQuery = trimmedQuery.toLowerCase();
     
     // 정확한 매칭 우선 (종목코드)
     if (/^\d{6}$/.test(trimmedQuery)) {
@@ -127,7 +131,48 @@ export async function searchKoreaStocksLocal(query: string): Promise<StockSugges
       }
     }
 
-    // Fuse.js로 퍼지 검색
+    // 직접 문자열 매칭 (Fuse.js보다 먼저, 짧은 검색어도 매칭)
+    const directMatches: Array<{ item: SymbolData; priority: number }> = [];
+    for (const stock of symbols.korea.stocks) {
+      const stockNameLower = stock.name.toLowerCase();
+      const stockCode = stock.code;
+      
+      // 정확한 매칭 (최우선)
+      if (stockNameLower === lowerQuery || stock.name === trimmedQuery) {
+        directMatches.push({ item: stock, priority: 1 });
+        continue;
+      }
+      
+      // 검색어로 시작하는 종목 (높은 우선순위)
+      if (stockNameLower.startsWith(lowerQuery) || stock.name.startsWith(trimmedQuery)) {
+        directMatches.push({ item: stock, priority: 2 });
+        continue;
+      }
+      
+      // 검색어가 포함된 종목 (중간 우선순위)
+      if (stockNameLower.includes(lowerQuery) || stock.name.includes(trimmedQuery)) {
+        directMatches.push({ item: stock, priority: 3 });
+        continue;
+      }
+      
+      // 종목코드에 포함 (낮은 우선순위)
+      if (stockCode.includes(trimmedQuery)) {
+        directMatches.push({ item: stock, priority: 4 });
+        continue;
+      }
+    }
+    
+    // 직접 매칭 결과가 있으면 우선 반환
+    if (directMatches.length > 0) {
+      directMatches.sort((a, b) => a.priority - b.priority);
+      return directMatches.slice(0, 10).map(({ item }) => ({
+        symbol: `${item.code}.KS`,
+        name: item.name,
+        exchange: item.market === 'ETF' ? 'ETF' : 'KRX',
+      }));
+    }
+
+    // Fuse.js로 퍼지 검색 (직접 매칭이 없을 때만)
     const results = fuseKorea.search(trimmedQuery, {
       limit: 10,
     });
@@ -240,62 +285,75 @@ export async function searchStocksLocal(query: string): Promise<StockSuggestion[
   }
 
   const trimmedQuery = query.trim();
+  const upperQuery = trimmedQuery.toUpperCase();
   const isKorean = /[가-힣]/.test(trimmedQuery);
-  const isKoreaTicker = /^\d{6}$/.test(trimmedQuery) || /\.(KS|KQ)$/i.test(trimmedQuery);
-  const isUSTicker = /^[A-Z]{1,5}$/.test(trimmedQuery.toUpperCase());
+  
+  // 한국 티커 패턴 (6자리 숫자)
+  const isKoreaTicker = /^\d{6}$/.test(trimmedQuery);
 
   const results: StockSuggestion[] = [];
 
-  // 한국 주식 검색 (한글 입력 또는 한국 티커인 경우)
-  if (isKorean || isKoreaTicker) {
+  // [수정된 로직] 한국 주식 검색
+  // 1. 한글이 포함되어 있거나
+  // 2. 한국 종목 코드 형식이거나
+  // 3. 영문/숫자 2글자 이상이면 무조건 한국 시장 검색 실행 (LG, SK 대응)
+  // !isUSTicker 조건 제거: 영문 2글자도 한국 기업일 수 있으므로 항상 검색
+  if (isKorean || isKoreaTicker || trimmedQuery.length >= 2) {
     const koreaResults = await searchKoreaStocksLocal(trimmedQuery);
     results.push(...koreaResults);
   }
 
-  // 미국 주식 검색 (항상 시도 - 한글 검색어도 미국 주식 검색)
+  // 미국 주식 검색 (한국 숫자 티커가 아닐 때만 실행하여 노이즈 감소)
   if (!isKoreaTicker) {
     const usResults = await searchUSStocksLocal(trimmedQuery);
     results.push(...usResults);
   }
 
-  // 중복 제거 (심볼 기준)
+  // 중복 제거 (시장 구분자를 포함한 전체 심볼을 키로 사용)
+  // split('.')[0] 방식은 위험: 한국 종목코드와 미국 티커가 충돌할 수 있음
   const seenSymbols = new Set<string>();
   const uniqueResults: StockSuggestion[] = [];
 
   for (const item of results) {
-    const symbolKey = item.symbol.split('.')[0].toUpperCase();
-    if (!seenSymbols.has(symbolKey)) {
-      seenSymbols.add(symbolKey);
+    // 전체 심볼을 키로 사용 (예: "005930.KS", "LG")
+    if (!seenSymbols.has(item.symbol)) {
+      seenSymbols.add(item.symbol);
       uniqueResults.push(item);
     }
   }
 
-  // 정렬 (한국어 입력인 경우 한국 주식 우선)
-  uniqueResults.sort((a, b) => {
-    const aIsKorea = a.symbol.includes('.KS') || a.symbol.includes('.KQ');
-    const bIsKorea = b.symbol.includes('.KS') || b.symbol.includes('.KQ');
+  // 정렬 로직: 검색어와 정확히 일치하는 이름을 가진 종목을 최상단으로
+  return uniqueResults.sort((a, b) => {
+    const aName = a.name.toLowerCase().replace(/\s+/g, '');
+    const bName = b.name.toLowerCase().replace(/\s+/g, '');
+    const q = trimmedQuery.toLowerCase().replace(/\s+/g, '');
+
+    // 1. 정확한 매칭 최우선
+    if (aName === q && bName !== q) return -1;
+    if (aName !== q && bName === q) return 1;
     
-    if (isKorean || isKoreaTicker) {
-      if (aIsKorea && !bIsKorea) return -1;
-      if (!aIsKorea && bIsKorea) return 1;
-    }
-    
-    // 정확한 매칭 우선
-    const aExact = a.name.replace(/\s+/g, '').toLowerCase() === trimmedQuery.replace(/\s+/g, '').toLowerCase();
-    const bExact = b.name.replace(/\s+/g, '').toLowerCase() === trimmedQuery.replace(/\s+/g, '').toLowerCase();
-    if (aExact && !bExact) return -1;
-    if (!aExact && bExact) return 1;
-    
-    // 검색어로 시작하는 종목 우선
-    const aStartsWith = a.name.toLowerCase().startsWith(trimmedQuery.toLowerCase());
-    const bStartsWith = b.name.toLowerCase().startsWith(trimmedQuery.toLowerCase());
+    // 2. 검색어로 시작하는 종목 우선
+    const aStartsWith = aName.startsWith(q);
+    const bStartsWith = bName.startsWith(q);
     if (aStartsWith && !bStartsWith) return -1;
     if (!aStartsWith && bStartsWith) return 1;
     
-    return 0;
-  });
+    // 3. 한국 주식 우선 (한글 입력 시)
+    if (isKorean) {
+      const aIsKR = a.symbol.includes('.KS') || a.symbol.includes('.KQ');
+      const bIsKR = b.symbol.includes('.KS') || b.symbol.includes('.KQ');
+      if (aIsKR && !bIsKR) return -1;
+      if (!aIsKR && bIsKR) return 1;
+    }
+    
+    // 4. 검색어가 포함된 종목 우선
+    const aContains = aName.includes(q);
+    const bContains = bName.includes(q);
+    if (aContains && !bContains) return -1;
+    if (!aContains && bContains) return 1;
 
-  return uniqueResults.slice(0, 10); // 최대 10개
+    return 0;
+  }).slice(0, 10); // 최대 10개
 }
 
 /**

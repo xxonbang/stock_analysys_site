@@ -32,6 +32,123 @@ export async function GET(request: NextRequest) {
     
     // 한글 검색어는 원본도 유지 (부분 매칭을 위해)
     const koreanQuery = /[가-힣]/.test(trimmedQuery) ? trimmedQuery.replace(/\s+/g, '') : null;
+    
+    // 0. Ticker 기반 역추적 (검색어가 6자리 숫자인 경우)
+    // 우회 상장, 합병 등으로 인한 사명 불일치 문제를 해결
+    const isTickerCode = /^\d{6}$/.test(trimmedQuery);
+    if (isTickerCode) {
+      try {
+        console.log(`[API] Ticker code detected, trying direct lookup: ${trimmedQuery}`);
+        const { findPythonCommand } = await import('@/lib/python-utils');
+        const { spawn } = await import('child_process');
+        const { join } = await import('path');
+        
+        const pythonCmd = await findPythonCommand();
+        const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
+        
+        // Python 스크립트에서 get_stock_by_ticker 함수를 직접 호출할 수 있도록
+        // 별도 스크립트를 만들거나, 기존 스크립트를 수정해야 함
+        // 일단 네이버 금융 페이지를 직접 크롤링하는 방식으로 구현
+        const tickerLookupUrl = `https://finance.naver.com/item/main.naver?code=${trimmedQuery}`;
+        
+        // Python 스크립트를 통해 Ticker 기반 역추적
+        // get_comprehensive_stock_listing.py의 get_stock_by_ticker 함수 사용
+        const execPromise = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+          // Python 스크립트를 직접 실행하여 Ticker 조회
+          // 간단한 Python 스크립트로 Ticker 조회
+          const pythonScript = `
+import sys
+import requests
+from bs4 import BeautifulSoup
+
+ticker = sys.argv[1]
+url = f'https://finance.naver.com/item/main.naver?code={ticker}'
+response = requests.get(url, timeout=10, headers={
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://finance.naver.com/'
+})
+response.encoding = 'euc-kr'
+soup = BeautifulSoup(response.text, 'html.parser')
+
+name = None
+for selector in ['h2.wrap_company', 'div.wrap_company h2', 'h2.company_name']:
+    element = soup.select_one(selector)
+    if element:
+        name = element.get_text(strip=True)
+        break
+
+market = 'KRX'
+market_info = soup.find('div', {'class': 'description'})
+if market_info:
+    market_text = market_info.get_text()
+    if '코스닥' in market_text or 'KOSDAQ' in market_text:
+        market = 'KOSDAQ'
+    elif '코스피' in market_text or 'KOSPI' in market_text:
+        market = 'KOSPI'
+
+if name:
+    import json
+    print(json.dumps({'success': True, 'name': name, 'market': market}))
+else:
+    import json
+    print(json.dumps({'success': False}))
+`;
+          
+          const proc = spawn(pythonCmd.command, ['-c', pythonScript, trimmedQuery], {
+            cwd: process.cwd(),
+            env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+          });
+          
+          let stdout = '';
+          let stderr = '';
+          
+          proc.stdout?.on('data', (data) => {
+            stdout += data.toString();
+          });
+          
+          proc.stderr?.on('data', (data) => {
+            stderr += data.toString();
+          });
+          
+          proc.on('close', (code) => {
+            if (code === 0) {
+              resolve({ stdout, stderr });
+            } else {
+              reject(new Error(`Python script exited with code ${code}: ${stderr}`));
+            }
+          });
+          
+          proc.on('error', (error) => {
+            reject(error);
+          });
+        });
+        
+        try {
+          const { stdout } = await execPromise;
+          const tickerResult = JSON.parse(stdout);
+          
+          if (tickerResult.success && tickerResult.name) {
+            const isKosdaq = tickerResult.market === 'KOSDAQ';
+            const suffix = isKosdaq ? '.KQ' : '.KS';
+            
+            results.push({
+              symbol: `${trimmedQuery}${suffix}`,
+              name: tickerResult.name,
+              exchange: 'KRX',
+            });
+            
+            console.log(`[API] Ticker lookup successful: ${tickerResult.name} (${trimmedQuery}${suffix})`);
+            
+            // Ticker로 찾았으면 바로 반환
+            return NextResponse.json({ results });
+          }
+        } catch (tickerError) {
+          console.warn(`[API] Ticker lookup failed for ${trimmedQuery}:`, tickerError);
+        }
+      } catch (error) {
+        console.warn('[API] Ticker lookup error:', error);
+      }
+    }
 
     // 1. 하드코딩된 매핑 먼저 확인 (빠르고 확실함)
     try {

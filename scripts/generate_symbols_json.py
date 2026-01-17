@@ -18,6 +18,8 @@ sys.stderr.reconfigure(encoding='utf-8')
 try:
     import FinanceDataReader as fdr
     import pandas as pd
+    import requests
+    from bs4 import BeautifulSoup
 except ImportError as e:
     print(json.dumps({"error": f"Required packages not installed: {e}"}), file=sys.stderr)
     sys.exit(1)
@@ -60,16 +62,154 @@ if env_local.exists():
 elif env_file.exists():
     load_env_file(env_file)
 
-def get_korea_stocks():
-    """한국 주식 리스트 가져오기 (KRX + KOSDAQ + ETF)"""
+def get_stock_listing_from_naver_all_stocks():
+    """네이버 금융에서 코스피/코스닥 전종목 리스트 가져오기 (실시간 시장 데이터 기반)
+    
+    이 함수는 행정 서류 제출 여부와 상관없이 '거래 중인 모든 종목'을 가져옵니다.
+    FinanceDataReader의 행정 마스터 파일 지연 문제를 해결합니다.
+    """
     all_stocks = []
     
-    # 1. GitHub CSV (가장 안정적)
+    try:
+        # 코스피 전종목 (sosok=0)
+        print("네이버 금융 코스피 전종목 가져오는 중...", file=sys.stderr)
+        kospi_url = 'https://finance.naver.com/sise/sise_low_item.naver?sosok=0'
+        response = requests.get(kospi_url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.naver.com/'
+        })
+        response.encoding = 'euc-kr'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        
+        if table:
+            for row in table.find_all('tr')[1:]:  # 헤더 제외
+                columns = row.find_all('td')
+                if len(columns) >= 2:
+                    name_link = columns[0].find('a')
+                    code_link = columns[1].find('a')
+                    
+                    if name_link and code_link:
+                        name = name_link.get_text(strip=True)
+                        code = code_link.get_text(strip=True)
+                        
+                        if name and code and code.isdigit() and len(code) == 6:
+                            all_stocks.append({
+                                'code': code,
+                                'name': name,
+                                'market': 'KOSPI',
+                                'country': 'KR'
+                            })
+        
+        print(f"네이버 금융 코스피에서 {len([s for s in all_stocks if s['market'] == 'KOSPI'])}개 종목 가져옴", file=sys.stderr)
+        
+        # 코스닥 전종목 (sosok=1)
+        print("네이버 금융 코스닥 전종목 가져오는 중...", file=sys.stderr)
+        kosdaq_url = 'https://finance.naver.com/sise/sise_low_item.naver?sosok=1'
+        response = requests.get(kosdaq_url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.naver.com/'
+        })
+        response.encoding = 'euc-kr'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        table = soup.find('table', {'class': 'type_2'})
+        
+        if table:
+            for row in table.find_all('tr')[1:]:  # 헤더 제외
+                columns = row.find_all('td')
+                if len(columns) >= 2:
+                    name_link = columns[0].find('a')
+                    code_link = columns[1].find('a')
+                    
+                    if name_link and code_link:
+                        name = name_link.get_text(strip=True)
+                        code = code_link.get_text(strip=True)
+                        
+                        if name and code and code.isdigit() and len(code) == 6:
+                            all_stocks.append({
+                                'code': code,
+                                'name': name,
+                                'market': 'KOSDAQ',
+                                'country': 'KR'
+                            })
+        
+        print(f"네이버 금융 코스닥에서 {len([s for s in all_stocks if s['market'] == 'KOSDAQ'])}개 종목 가져옴", file=sys.stderr)
+        print(f"네이버 금융 전종목 총 {len(all_stocks)}개 종목 가져옴", file=sys.stderr)
+        
+    except Exception as e:
+        print(f"네이버 금융 전종목 크롤링 실패: {str(e)}", file=sys.stderr)
+    
+    return all_stocks
+
+def get_stock_by_ticker(ticker_code):
+    """Ticker 기반 역추적: 종목코드로 직접 종목 정보 조회"""
+    if not ticker_code or not ticker_code.isdigit() or len(ticker_code) != 6:
+        return None
+    
+    try:
+        url = f'https://finance.naver.com/item/main.naver?code={ticker_code}'
+        response = requests.get(url, timeout=10, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.naver.com/'
+        })
+        response.encoding = 'euc-kr'
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        name = None
+        name_selectors = ['h2.wrap_company', 'div.wrap_company h2', 'h2.company_name']
+        for selector in name_selectors:
+            element = soup.select_one(selector)
+            if element:
+                name = element.get_text(strip=True)
+                break
+        
+        market = 'KRX'
+        market_info = soup.find('div', {'class': 'description'})
+        if market_info:
+            market_text = market_info.get_text()
+            if '코스닥' in market_text or 'KOSDAQ' in market_text:
+                market = 'KOSDAQ'
+            elif '코스피' in market_text or 'KOSPI' in market_text:
+                market = 'KOSPI'
+        
+        if name:
+            return {
+                'code': ticker_code,
+                'name': name,
+                'market': market,
+                'country': 'KR'
+            }
+    except Exception as e:
+        print(f"Ticker {ticker_code} 조회 실패: {str(e)}", file=sys.stderr)
+    
+    return None
+
+def get_korea_stocks():
+    """한국 주식 리스트 가져오기 (KRX + KOSDAQ + ETF) - 다중 마스터 병합"""
+    all_stocks = []
+    existing_codes = set()
+    
+    # 1. 네이버 금융 전종목 (실시간 시장 데이터 기반, 최우선)
+    # 행정 마스터 파일 지연 문제를 해결하는 핵심 데이터 소스
+    try:
+        naver_stocks = get_stock_listing_from_naver_all_stocks()
+        for stock in naver_stocks:
+            code = stock['code']
+            if code not in existing_codes:
+                all_stocks.append(stock)
+                existing_codes.add(code)
+        print(f"네이버 금융 전종목에서 {len(naver_stocks)}개 종목 가져옴", file=sys.stderr)
+    except Exception as e:
+        print(f"네이버 금융 전종목 크롤링 실패: {str(e)}", file=sys.stderr)
+    
+    # 2. GitHub CSV (안정적 백업 소스)
     try:
         github_url = "https://raw.githubusercontent.com/corazzon/finance-data-analysis/main/krx.csv"
         df = pd.read_csv(github_url)
         
-        # 컬럼명 정규화
         column_mapping = {}
         for col in df.columns:
             col_lower = col.lower()
@@ -86,45 +226,63 @@ def get_korea_stocks():
             if 'Market' not in df.columns:
                 df['Market'] = 'KRX'
             
+            added_count = 0
             for _, row in df.iterrows():
                 symbol = str(row.get('Symbol', '')).strip()
                 name = str(row.get('Name', '')).strip()
                 market = str(row.get('Market', 'KRX')).strip()
                 
                 if symbol and name and len(symbol) == 6 and symbol.isdigit():
-                    all_stocks.append({
-                        'code': symbol,
-                        'name': name,
-                        'market': market,
-                        'country': 'KR'
-                    })
-        
-        print(f"GitHub CSV에서 {len(all_stocks)}개 종목 가져옴", file=sys.stderr)
-    except Exception as e:
-        print(f"GitHub CSV 실패: {str(e)}", file=sys.stderr)
-    
-    # 2. FinanceDataReader 시도 (보완용)
-    try:
-        stock_list = fdr.StockListing('KRX')
-        if stock_list is not None and not stock_list.empty:
-            for _, row in stock_list.iterrows():
-                symbol = str(row.get('Symbol', '')).strip()
-                name = str(row.get('Name', '')).strip()
-                market = str(row.get('Market', 'KRX')).strip()
-                
-                if symbol and name and len(symbol) == 6 and symbol.isdigit():
-                    # 중복 제거
-                    if not any(s['code'] == symbol for s in all_stocks):
+                    if symbol not in existing_codes:
                         all_stocks.append({
                             'code': symbol,
                             'name': name,
                             'market': market,
                             'country': 'KR'
                         })
-        
-        print(f"FinanceDataReader에서 추가로 {len(all_stocks)}개 종목 확보", file=sys.stderr)
+                        existing_codes.add(symbol)
+                        added_count += 1
+            
+            print(f"GitHub CSV에서 {added_count}개 종목 추가 (기존 {len(existing_codes) - added_count}개와 중복 제외)", file=sys.stderr)
+    except Exception as e:
+        print(f"GitHub CSV 실패: {str(e)}", file=sys.stderr)
+    
+    # 3. FinanceDataReader 시도 (보완용)
+    try:
+        stock_list = fdr.StockListing('KRX')
+        if stock_list is not None and not stock_list.empty:
+            added_count = 0
+            for _, row in stock_list.iterrows():
+                symbol = str(row.get('Symbol', '')).strip()
+                name = str(row.get('Name', '')).strip()
+                market = str(row.get('Market', 'KRX')).strip()
+                
+                if symbol and name and len(symbol) == 6 and symbol.isdigit():
+                    if symbol not in existing_codes:
+                        all_stocks.append({
+                            'code': symbol,
+                            'name': name,
+                            'market': market,
+                            'country': 'KR'
+                        })
+                        existing_codes.add(symbol)
+                        added_count += 1
+            
+            print(f"FinanceDataReader에서 {added_count}개 종목 추가", file=sys.stderr)
     except Exception as e:
         print(f"FinanceDataReader 실패 (무시): {str(e)}", file=sys.stderr)
+    
+    # 4. 주요 누락 종목 수동 보강 (Manual Overlay)
+    # FinanceDataReader에서 누락되는 주요 종목들을 Ticker 기반 역추적으로 추가
+    manual_tickers = ['064400']  # LG씨엔에스 등
+    
+    for ticker in manual_tickers:
+        if ticker not in existing_codes:
+            ticker_info = get_stock_by_ticker(ticker)
+            if ticker_info:
+                all_stocks.append(ticker_info)
+                existing_codes.add(ticker)
+                print(f"수동 보강 (Ticker 역추적): {ticker_info['name']} ({ticker}) 추가", file=sys.stderr)
     
     return all_stocks
 

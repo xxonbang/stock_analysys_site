@@ -204,15 +204,54 @@ async function searchUSStocksViaAPI(query: string): Promise<StockSuggestion[]> {
 }
 
 /**
- * 통합 종목 검색 (로컬 검색 전용)
+ * 네이버 증권 자동완성 API로 한국 주식 검색
  * 
- * 안정성과 성능을 위해 로컬 symbols.json만 사용합니다.
- * - 레이턴시: 0-10ms (즉시 검색)
- * - 안정성: 외부 API 의존성 없음
- * - 429 에러: 완전히 방지
- * - 비용: API 호출 비용 없음
+ * 실시간 데이터 기반으로 신규 상장 종목도 즉시 검색 가능합니다.
+ * FinanceDataReader의 행정 마스터 파일 지연 문제를 해결합니다.
+ */
+async function searchStocksNaver(query: string): Promise<StockSuggestion[]> {
+  if (!query || query.trim().length < 1) {
+    return [];
+  }
+
+  try {
+    const encodedQuery = encodeURIComponent(query.trim());
+    const url = `/api/search-naver-stocks?q=${encodedQuery}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`[Stock Search] Naver Finance API failed: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+    
+    if (results.length > 0) {
+      console.log(`[Stock Search] Naver Finance API found ${results.length} results for "${query}"`);
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('[Stock Search] Error searching with Naver Finance API:', error);
+    return [];
+  }
+}
+
+/**
+ * 통합 종목 검색 (하이브리드 방식)
  * 
- * symbols.json에는 32,330개 종목이 포함되어 있어 대부분의 검색 요구를 충족합니다.
+ * 1단계: 로컬 symbols.json 검색 (빠르고 안정적)
+ * 2단계: 로컬 검색 결과가 없으면 네이버 증권 API로 실시간 검색 (신규 상장주 대응)
+ * 
+ * 이 방식으로 FinanceDataReader의 행정 마스터 파일 지연 문제를 해결하면서도
+ * 대부분의 검색은 빠른 로컬 검색으로 처리합니다.
  */
 export async function searchStocks(query: string): Promise<StockSuggestion[]> {
   if (!query || query.trim().length < 2) {
@@ -220,24 +259,85 @@ export async function searchStocks(query: string): Promise<StockSuggestion[]> {
   }
 
   const trimmedQuery = query.trim();
+  const isKorean = /[가-힣]/.test(trimmedQuery);
+  const isKoreaTicker = /^\d{6}$/.test(trimmedQuery);
 
   try {
-    // 로컬 검색만 사용 (API Fallback 제거)
+    // 1단계: 로컬 검색 (한국 주식인 경우에만)
     const { searchStocksLocal } = await import('./local-stock-search');
-    const results = await searchStocksLocal(trimmedQuery);
+    let results = await searchStocksLocal(trimmedQuery);
     
-    if (results.length > 0) {
-      console.log(`[Stock Search] Local search found ${results.length} results for "${trimmedQuery}"`);
-    } else {
-      console.log(`[Stock Search] No results found for "${trimmedQuery}"`);
+    // 정확한 매칭이 있는지 확인 (종목명이 검색어와 정확히 일치)
+    const normalizedQuery = trimmedQuery.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '').toLowerCase();
+    const hasExactMatch = results.some(r => {
+      const normalizedName = r.name.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '').toLowerCase();
+      return normalizedName === normalizedQuery || normalizedName === trimmedQuery.toLowerCase();
+    });
+    
+    if (hasExactMatch) {
+      console.log(`[Stock Search] Local search found exact match for "${trimmedQuery}"`);
+      return results;
     }
     
-    return results;
+    // 2단계: 정확한 매칭이 없으면 네이버 API 호출 (신규 상장주 대응)
+    // 한글 검색어이거나 한국 티커인 경우 항상 네이버 API도 시도
+    if (isKorean || isKoreaTicker) {
+      console.log(`[Stock Search] No exact match in local search, trying Naver Finance API for "${trimmedQuery}"`);
+      const naverResults = await searchStocksNaver(trimmedQuery);
+      
+      if (naverResults.length > 0) {
+        // 네이버 API 결과에서 정확한 매칭 우선 확인
+        const naverExactMatch = naverResults.find(r => {
+          const normalizedName = r.name.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '').toLowerCase();
+          return normalizedName === normalizedQuery || normalizedName === trimmedQuery.toLowerCase();
+        });
+        
+        if (naverExactMatch) {
+          console.log(`[Stock Search] Naver Finance API found exact match: "${naverExactMatch.name}" (${naverExactMatch.symbol})`);
+          // 정확한 매칭을 첫 번째로, 로컬 검색 결과와 나머지 네이버 결과를 뒤에 추가
+          const otherNaverResults = naverResults.filter(r => r.symbol !== naverExactMatch.symbol);
+          const localResultsWithoutDuplicates = results.filter(r => {
+            const code = r.symbol.replace(/\.(KS|KQ)$/, '');
+            return !naverResults.some(nr => nr.symbol.replace(/\.(KS|KQ)$/, '') === code);
+          });
+          return [naverExactMatch, ...localResultsWithoutDuplicates, ...otherNaverResults].slice(0, 10);
+        }
+        
+        // 정확한 매칭은 없지만 네이버 결과가 있으면 네이버 결과 우선 반환
+        console.log(`[Stock Search] Naver Finance API found ${naverResults.length} results (including newly listed stocks)`);
+        // 로컬 검색 결과와 중복 제거하여 병합
+        const localResultsWithoutDuplicates = results.filter(r => {
+          const code = r.symbol.replace(/\.(KS|KQ)$/, '');
+          return !naverResults.some(nr => nr.symbol.replace(/\.(KS|KQ)$/, '') === code);
+        });
+        return [...naverResults, ...localResultsWithoutDuplicates].slice(0, 10);
+      }
+    }
+    
+    // 3단계: 네이버 API 결과도 없으면 로컬 검색 결과 반환 (부분 매칭이라도)
+    if (results.length > 0) {
+      console.log(`[Stock Search] Returning ${results.length} partial matches from local search`);
+      return results;
+    }
+    
+    console.log(`[Stock Search] No results found for "${trimmedQuery}"`);
+    return [];
   } catch (error) {
-    // 로컬 검색 실패 시에도 빈 배열 반환 (API 호출 안 함)
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[Stock Search] Local search error:', errorMessage);
-    console.warn('[Stock Search] symbols.json 파일을 확인해주세요. (/public/data/symbols.json)');
+    console.error('[Stock Search] Search error:', errorMessage);
+    
+    // 에러 발생 시에도 네이버 API 시도 (한국 주식인 경우)
+    if (isKorean || isKoreaTicker) {
+      try {
+        const naverResults = await searchStocksNaver(trimmedQuery);
+        if (naverResults.length > 0) {
+          return naverResults;
+        }
+      } catch (naverError) {
+        console.error('[Stock Search] Naver Finance API fallback also failed:', naverError);
+      }
+    }
+    
     return [];
   }
 }
