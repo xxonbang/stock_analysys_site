@@ -247,13 +247,12 @@ export async function fetchStocksDataBatchVercel(
                   logger.debug(`[Symbol Normalization] Trying real-time Naver Finance search for: ${normalized}`);
                   const { findPythonCommand } = await import('./python-utils');
                   const { spawn } = await import('child_process');
-                  const { promisify } = await import('util');
                   const { join } = await import('path');
                   
-                  const pythonCmd = findPythonCommand();
+                  const pythonCmd = await findPythonCommand();
                   const scriptPath = join(process.cwd(), 'scripts', 'search_stock_by_name.py');
                   
-                  const execPromise = promisify((callback: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+                  const execPromise = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
                     const proc = spawn(pythonCmd.command, [scriptPath, normalized], {
                       cwd: process.cwd(),
                       env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
@@ -272,18 +271,18 @@ export async function fetchStocksDataBatchVercel(
                     
                     proc.on('close', (code) => {
                       if (code === 0) {
-                        callback(null, stdout, stderr);
+                        resolve({ stdout, stderr });
                       } else {
-                        callback(new Error(`Python script exited with code ${code}: ${stderr}`));
+                        reject(new Error(`Python script exited with code ${code}: ${stderr}`));
                       }
                     });
                     
                     proc.on('error', (error) => {
-                      callback(error);
+                      reject(error);
                     });
                   });
                   
-                  const { stdout } = await execPromise();
+                  const { stdout } = await execPromise;
                   const searchResult = JSON.parse(stdout);
                   
                   if (searchResult.success && searchResult.data && searchResult.data.length > 0) {

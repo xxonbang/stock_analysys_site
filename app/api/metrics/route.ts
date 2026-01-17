@@ -7,6 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { metricsCollector } from '@/lib/data-metrics';
 
+// 동적 라우트로 설정 (searchParams 사용)
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;

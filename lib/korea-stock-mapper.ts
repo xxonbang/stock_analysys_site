@@ -99,8 +99,10 @@ export async function normalizeStockSymbolHybrid(
     return staticConverted;
   }
 
-  // 3. 동적 매핑 시도 (한글 이름인 경우만)
-  if (useDynamicMapping && /[가-힣]/.test(symbol)) {
+  // 3. 동적 매핑은 서버 사이드(API 라우트)에서만 사용
+  // 클라이언트 컴포넌트에서는 정적 매핑만 사용하여 번들 크기 및 호환성 문제 방지
+  // 동적 매핑이 필요한 경우 API 라우트를 통해 처리
+  if (useDynamicMapping && /[가-힣]/.test(symbol) && typeof window === 'undefined') {
     try {
       const { normalizeStockSymbolDynamic } = await import('./korea-stock-mapper-dynamic');
       const dynamicConverted = await normalizeStockSymbolDynamic(symbol);

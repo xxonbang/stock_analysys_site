@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+// 동적 라우트로 설정 (searchParams 사용)
+export const dynamic = 'force-dynamic';
 import type { StockSuggestion } from '@/lib/stock-search';
 
 /**
@@ -186,6 +189,7 @@ export async function GET(request: NextRequest) {
       // 종목을 찾지 못한 경우 실시간 네이버 금융 검색 시도
       // 기존 리스트에서 정확한 매칭을 찾지 못한 경우에만 실행
       const hasExactMatch = results.some(r => {
+        if (!koreanQuery) return false;
         const nameNoSpace = r.name.replace(/\s+/g, '');
         return nameNoSpace === koreanQuery || nameNoSpace.includes(koreanQuery);
       });
@@ -195,13 +199,12 @@ export async function GET(request: NextRequest) {
           console.log(`[API] Stock not found in cache, trying real-time Naver Finance search for: "${koreanQuery}"`);
           const { findPythonCommand } = await import('@/lib/python-utils');
           const { spawn } = await import('child_process');
-          const { promisify } = await import('util');
           const { join } = await import('path');
           
-          const pythonCmd = findPythonCommand();
+          const pythonCmd = await findPythonCommand();
           const scriptPath = join(process.cwd(), 'scripts', 'search_stock_by_name.py');
           
-          const execPromise = promisify((callback: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+          const execPromise = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
             const proc = spawn(pythonCmd.command, [scriptPath, koreanQuery], {
               cwd: process.cwd(),
               env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
@@ -220,18 +223,18 @@ export async function GET(request: NextRequest) {
             
             proc.on('close', (code) => {
               if (code === 0) {
-                callback(null, stdout, stderr);
+                resolve({ stdout, stderr });
               } else {
-                callback(new Error(`Python script exited with code ${code}: ${stderr}`));
+                reject(new Error(`Python script exited with code ${code}: ${stderr}`));
               }
             });
             
             proc.on('error', (error) => {
-              callback(error);
+              reject(error);
             });
           });
           
-          const { stdout } = await execPromise();
+          const { stdout } = await execPromise;
           const searchResult = JSON.parse(stdout);
           
           if (searchResult.success && searchResult.data && searchResult.data.length > 0) {

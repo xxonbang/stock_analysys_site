@@ -1,5 +1,8 @@
 "use client";
 
+// 클라이언트 전용 컴포넌트이므로 정적 생성 비활성화
+export const dynamic = 'force-dynamic';
+
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";

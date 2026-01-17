@@ -3,18 +3,27 @@
  * 
  * 하드코딩된 매핑 대신 FinanceDataReader StockListing을 활용하여
  * 동적으로 티커를 검색합니다.
+ * 
+ * ⚠️ 서버 사이드 전용 모듈입니다.
  */
 
-import { spawn } from 'child_process';
-import { join } from 'path';
-import { readFile, writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import { findPythonCommand } from './python-utils';
+// 서버 사이드 전용 모듈
+// 클라이언트에서 import 시도 시 에러 발생
+if (typeof window !== 'undefined') {
+  throw new Error('korea-stock-mapper-dynamic is server-only and cannot be imported in client components');
+}
 
-// 캐시 파일 경로
-const CACHE_DIR = join(process.cwd(), '.cache');
-const STOCK_LISTING_CACHE_FILE = join(CACHE_DIR, 'krx-stock-listing.json');
+// Node.js 전용 모듈은 동적 import로 처리 (클라이언트 번들에서 제외)
+
+// 캐시 파일 경로 (서버 사이드에서만 사용)
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24시간
+
+async function getCachePaths() {
+  const { join } = await import('path');
+  const CACHE_DIR = join(process.cwd(), '.cache');
+  const STOCK_LISTING_CACHE_FILE = join(CACHE_DIR, 'krx-stock-listing.json');
+  return { CACHE_DIR, STOCK_LISTING_CACHE_FILE };
+}
 
 interface StockListingItem {
   Symbol: string;
@@ -27,23 +36,6 @@ interface CachedStockListing {
   timestamp: number;
 }
 
-// Python 명령어 캐시
-let cachedPythonCommand: string | null = null;
-
-async function getPythonCommand(): Promise<string> {
-  if (cachedPythonCommand) {
-    return cachedPythonCommand;
-  }
-  
-  try {
-    const { command } = await findPythonCommand();
-    cachedPythonCommand = command;
-    return command;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Python command not found: ${errorMessage}`);
-  }
-}
 
 /**
  * Python 스크립트를 통해 KRX 전체 종목 리스트 가져오기
@@ -52,7 +44,12 @@ async function getPythonCommand(): Promise<string> {
 async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
   return new Promise(async (resolve, reject) => {
     try {
-      const pythonCommand = await getPythonCommand();
+      // Node.js 전용 모듈은 서버 사이드에서만 사용 가능하므로 동적 import
+      const { spawn } = await import('child_process');
+      const { join } = await import('path');
+      const { findPythonCommand } = await import('./python-utils');
+      
+      const { command: pythonCommand } = await findPythonCommand();
       // 종합적인 데이터 소스를 활용하는 스크립트 사용
       const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
       const pythonProcess = spawn(pythonCommand, [scriptPath]);
@@ -113,6 +110,10 @@ async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
  */
 async function readCachedStockListing(): Promise<{ data: StockListingItem[]; isExpired: boolean } | null> {
   try {
+    const { existsSync } = await import('fs');
+    const { readFile } = await import('fs/promises');
+    const { STOCK_LISTING_CACHE_FILE } = await getCachePaths();
+    
     if (!existsSync(STOCK_LISTING_CACHE_FILE)) {
       return null;
     }
@@ -139,6 +140,10 @@ async function readCachedStockListing(): Promise<{ data: StockListingItem[]; isE
  */
 async function saveCachedStockListing(data: StockListingItem[]): Promise<void> {
   try {
+    const { existsSync } = await import('fs');
+    const { mkdir, writeFile } = await import('fs/promises');
+    const { CACHE_DIR, STOCK_LISTING_CACHE_FILE } = await getCachePaths();
+    
     // 캐시 디렉토리 생성
     if (!existsSync(CACHE_DIR)) {
       await mkdir(CACHE_DIR, { recursive: true });

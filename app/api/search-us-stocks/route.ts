@@ -3,6 +3,9 @@ import type { StockSuggestion } from '@/lib/stock-search';
 import type { FinnhubStockSymbol } from '@/lib/finnhub-symbols';
 import { findPythonCommand } from '@/lib/python-utils';
 
+// 동적 라우트로 설정 (searchParams 사용)
+export const dynamic = 'force-dynamic';
+
 /**
  * 미국 주식 검색 API Route
  * Finnhub Stock Symbols API를 활용한 동적 검색
