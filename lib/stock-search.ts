@@ -204,9 +204,15 @@ async function searchUSStocksViaAPI(query: string): Promise<StockSuggestion[]> {
 }
 
 /**
- * 통합 종목 검색 (로컬 검색 우선, API는 Fallback)
- * 안정성과 성능을 위해 로컬 symbols.json을 우선 사용하고,
- * 실패 시에만 실시간 API를 호출합니다.
+ * 통합 종목 검색 (로컬 검색 전용)
+ * 
+ * 안정성과 성능을 위해 로컬 symbols.json만 사용합니다.
+ * - 레이턴시: 0-10ms (즉시 검색)
+ * - 안정성: 외부 API 의존성 없음
+ * - 429 에러: 완전히 방지
+ * - 비용: API 호출 비용 없음
+ * 
+ * symbols.json에는 32,330개 종목이 포함되어 있어 대부분의 검색 요구를 충족합니다.
  */
 export async function searchStocks(query: string): Promise<StockSuggestion[]> {
   if (!query || query.trim().length < 2) {
@@ -214,123 +220,24 @@ export async function searchStocks(query: string): Promise<StockSuggestion[]> {
   }
 
   const trimmedQuery = query.trim();
-  
-  // 한국어 입력인지 확인
-  const isKorean = /[가-힣]/.test(trimmedQuery);
-  
-  // 한국 주식 티커 형식인지 확인 (6자리 숫자 또는 .KS/.KQ 포함)
-  const isKoreaTicker = /^\d{6}$/.test(trimmedQuery) || /\.(KS|KQ)$/i.test(trimmedQuery);
-  
-  // 미국 주식 티커 형식인지 확인 (영문 대문자, 보통 1-5자)
-  const isUSTicker = /^[A-Z]{1,5}$/.test(trimmedQuery.toUpperCase());
 
   try {
-    // 1. 로컬 검색 우선 시도 (안정성 100%, 레이턴시 0ms)
-    try {
-      const { searchStocksLocal } = await import('./local-stock-search');
-      const localResults = await searchStocksLocal(trimmedQuery);
-      
-      if (localResults.length > 0) {
-        console.log(`[Stock Search] Local search found ${localResults.length} results for "${trimmedQuery}"`);
-        return localResults;
-      }
-    } catch (localError) {
-      console.warn('[Stock Search] Local search failed, falling back to API:', localError);
-    }
-
-    // 2. 로컬 검색 실패 시 API 검색 (Fallback)
-    const promises: Promise<StockSuggestion[]>[] = [];
-
-    // 2-1. 한국 주식 검색 (한글 입력 또는 한국 티커인 경우)
-    if (isKorean || isKoreaTicker) {
-      promises.push(searchKoreaStocksViaAPI(trimmedQuery));
-    }
-
-    // 2-2. 미국 주식 검색 (항상 실행 - 한글 검색어도 미국 주식 검색 시도)
-    promises.push(searchUSStocksViaAPI(trimmedQuery));
-
-    // 2-3. Yahoo Finance 검색 (Fallback) - 신중하게 사용 (429 에러 위험)
-    // 한글 입력인 경우에만 제한적으로 사용
-    if (isKorean && trimmedQuery.length >= 2) {
-      promises.push(searchStocksYahoo(trimmedQuery, { region: 'KR', lang: 'ko-KR' }).catch(() => []));
-    }
-
-    // 2-4. Finnhub Symbol Search (Fallback) - 신중하게 사용
-    const FINNHUB_API_KEY = process.env.NEXT_PUBLIC_FINNHUB_API_KEY || process.env.FINNHUB_API_KEY;
-    if (FINNHUB_API_KEY && trimmedQuery.length >= 2) {
-      promises.push(searchStocksFinnhub(trimmedQuery).catch(() => []));
-    }
-
-    // 모든 검색 결과 병렬로 가져오기 (에러 발생해도 계속 진행)
-    const results = await Promise.allSettled(promises);
+    // 로컬 검색만 사용 (API Fallback 제거)
+    const { searchStocksLocal } = await import('./local-stock-search');
+    const results = await searchStocksLocal(trimmedQuery);
     
-    // 결과 합치기 및 중복 제거
-    const allResults: StockSuggestion[] = [];
-    const seenSymbols = new Set<string>();
-
-    for (const result of results) {
-      // Promise.allSettled 결과 처리
-      if (result.status === 'fulfilled') {
-        const resultSet = result.value;
-        for (const item of resultSet) {
-          // 심볼이 같으면 중복 제거 (거래소 구분 없이)
-          const symbolKey = item.symbol.split('.')[0].toUpperCase(); // 'AAPL'과 'AAPL.US'는 같은 것으로 간주
-          if (!seenSymbols.has(symbolKey)) {
-            seenSymbols.add(symbolKey);
-            allResults.push(item);
-          }
-        }
-      } else {
-        // 실패한 검색은 무시 (이미 catch로 처리됨)
-        console.warn('[Stock Search] API search failed:', result.reason);
-      }
+    if (results.length > 0) {
+      console.log(`[Stock Search] Local search found ${results.length} results for "${trimmedQuery}"`);
+    } else {
+      console.log(`[Stock Search] No results found for "${trimmedQuery}"`);
     }
-
-    // 검색 결과 정렬
-    allResults.sort((a, b) => {
-      const aIsKorea = a.symbol.includes('.KS') || a.symbol.includes('.KQ');
-      const bIsKorea = b.symbol.includes('.KS') || b.symbol.includes('.KQ');
-      
-      // 한국어 입력인 경우 한국 주식 우선
-      if (isKorean || isKoreaTicker) {
-        if (aIsKorea && !bIsKorea) return -1;
-        if (!aIsKorea && bIsKorea) return 1;
-      }
-      
-      const aName = a.name.toLowerCase().replace(/\s+/g, '');
-      const bName = b.name.toLowerCase().replace(/\s+/g, '');
-      const queryLower = trimmedQuery.toLowerCase().replace(/\s+/g, '');
-      
-      // 1. 정확한 매칭 우선 (가장 중요)
-      const aExact = aName === queryLower;
-      const bExact = bName === queryLower;
-      if (aExact && !bExact) return -1;
-      if (!aExact && bExact) return 1;
-      
-      // 2. 검색어로 시작하는 종목 우선
-      const aStartsWith = aName.startsWith(queryLower) || a.symbol.toLowerCase().startsWith(queryLower);
-      const bStartsWith = bName.startsWith(queryLower) || b.symbol.toLowerCase().startsWith(queryLower);
-      if (aStartsWith && !bStartsWith) return -1;
-      if (!aStartsWith && bStartsWith) return 1;
-      
-      // 3. 검색어와 길이가 비슷한 종목 우선 (더 정확한 매칭)
-      const aLengthDiff = Math.abs(aName.length - queryLower.length);
-      const bLengthDiff = Math.abs(bName.length - queryLower.length);
-      if (aLengthDiff !== bLengthDiff) {
-        return aLengthDiff - bLengthDiff;
-      }
-      
-      // 4. 이름 길이 짧은 것 우선 (더 정확한 매칭)
-      if (aName.length !== bName.length) {
-        return aName.length - bName.length;
-      }
-      
-      return 0;
-    });
-
-    return allResults.slice(0, 10); // 최대 10개
+    
+    return results;
   } catch (error) {
-    console.error('Error in unified stock search:', error);
+    // 로컬 검색 실패 시에도 빈 배열 반환 (API 호출 안 함)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[Stock Search] Local search error:', errorMessage);
+    console.warn('[Stock Search] symbols.json 파일을 확인해주세요. (/public/data/symbols.json)');
     return [];
   }
 }

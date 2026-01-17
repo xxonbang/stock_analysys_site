@@ -58,10 +58,16 @@ async function loadSymbols(): Promise<SymbolsJSON> {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to load symbols.json: ${response.status}`);
+        throw new Error(`Failed to load symbols.json: ${response.status} ${response.statusText}`);
       }
 
       const data: SymbolsJSON = await response.json();
+      
+      // 데이터 유효성 검사
+      if (!data.korea || !data.us || !Array.isArray(data.korea.stocks) || !Array.isArray(data.us.stocks)) {
+        throw new Error('Invalid symbols.json format');
+      }
+      
       cachedSymbols = data;
 
       // Fuse.js 인덱스 생성
@@ -78,9 +84,12 @@ async function loadSymbols(): Promise<SymbolsJSON> {
       fuseKorea = new Fuse(data.korea.stocks, fuseOptions);
       fuseUS = new Fuse(data.us.stocks, fuseOptions);
 
+      console.log(`[Local Stock Search] Loaded ${data.total} stocks (Korea: ${data.korea.count}, US: ${data.us.count})`);
       return data;
     } catch (error) {
-      console.error('[Local Stock Search] Failed to load symbols.json:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[Local Stock Search] Failed to load symbols.json:', errorMessage);
+      console.error('[Local Stock Search] Please ensure /public/data/symbols.json exists and is valid JSON');
       loadPromise = null; // 실패 시 재시도 가능하도록
       throw error;
     }
