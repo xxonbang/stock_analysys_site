@@ -16,7 +16,8 @@ import { join } from 'path';
 import { normalizeStockSymbol, normalizeStockSymbolHybrid } from './korea-stock-mapper';
 import { validateStockData } from './data-validator';
 import { metrics } from './data-metrics';
-import { logger, toAppError, findPythonCommand } from './utils';
+import { logger, toAppError } from './utils';
+import { findPythonCommand } from './python-utils';
 
 /**
  * Python 스크립트를 실행하여 주식 데이터 수집

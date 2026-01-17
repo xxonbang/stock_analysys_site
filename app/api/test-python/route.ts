@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
-import { findPythonCommand } from "@/lib/utils";
+import { findPythonCommand } from "@/lib/python-utils";
 
 /**
  * Python 스크립트를 직접 실행하는 테스트 API

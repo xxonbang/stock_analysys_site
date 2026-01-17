@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { StockSuggestion } from '@/lib/stock-search';
 import type { FinnhubStockSymbol } from '@/lib/finnhub-symbols';
-import { findPythonCommand } from '@/lib/utils';
+import { findPythonCommand } from '@/lib/python-utils';
 
 /**
  * 미국 주식 검색 API Route

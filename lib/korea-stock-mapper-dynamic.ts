@@ -9,7 +9,7 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { findPythonCommand } from './utils';
+import { findPythonCommand } from './python-utils';
 
 // 캐시 파일 경로
 const CACHE_DIR = join(process.cwd(), '.cache');
