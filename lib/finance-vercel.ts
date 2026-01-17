@@ -52,7 +52,7 @@ interface PythonScriptResult {
 async function runPythonScript(symbol: string, period: string = '1m'): Promise<PythonScriptResult> {
   return new Promise((resolve, reject) => {
     const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
-    const pythonProcess = spawn('python3', [scriptPath, symbol, period]);
+    const pythonProcess = spawn('python3.11', [scriptPath, symbol, period]);
 
     let output = '';
     let errorOutput = '';

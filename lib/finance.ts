@@ -263,7 +263,7 @@ export async function fetchStockData(
     const ma20 = calculateMA(closes, 20);
     const ma60 = calculateMA(closes, 60);
     const ma120 = calculateMA(closes, 120);
-    const disparity = calculateDisparity(currentPrice, ma20);
+    const disparity = ma20 !== null ? calculateDisparity(currentPrice, ma20) : 0;
 
     const responseTime = Date.now() - startTime;
     metrics.success(symbol, 'Yahoo Finance', responseTime, {
@@ -279,10 +279,10 @@ export async function fetchStockData(
       marketCap,
       rsi,
       movingAverages: {
-        ma5,
-        ma20,
-        ma60,
-        ma120,
+        ma5: ma5 ?? 0,
+        ma20: ma20 ?? 0,
+        ma60: ma60 ?? 0,
+        ma120: ma120 ?? 0,
       },
       disparity,
       historicalData,

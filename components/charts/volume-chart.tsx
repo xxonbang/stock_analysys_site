@@ -65,7 +65,7 @@ export function VolumeChart({ data, averageVolume }: VolumeChartProps) {
             borderRadius: '8px',
             padding: '8px',
           }}
-          formatter={(value: number) => value.toLocaleString()}
+          formatter={(value: number | undefined) => value?.toLocaleString() ?? ''}
           labelFormatter={(label) => `날짜: ${label}`}
         />
         <Legend />

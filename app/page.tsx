@@ -123,9 +123,14 @@ export default function HomePage() {
       // 종목명을 심볼로 변환
       const convertToSymbols = async (
         stockNames: string[]
-      ): Promise<{ symbols: string[]; nameMap: Map<string, string> }> => {
+      ): Promise<{ 
+        symbols: string[]; 
+        nameMap: Map<string, string>;
+        foundMap: Map<string, boolean>; // 원본 이름 -> 검색 성공 여부
+      }> => {
         const symbols: string[] = [];
         const nameMap = new Map<string, string>(); // 심볼 -> 종목명 매핑 (API 응답에 종목명 추가용)
+        const foundMap = new Map<string, boolean>(); // 원본 이름 -> 검색 성공 여부
 
         for (const name of stockNames) {
           // 이미 매핑된 심볼이 있으면 사용
@@ -133,6 +138,7 @@ export default function HomePage() {
             const symbol = stockSymbolMap.get(name)!;
             symbols.push(symbol);
             nameMap.set(symbol, name);
+            foundMap.set(name, true); // 기존 매핑이 있으면 검색 성공으로 간주
             continue;
           }
 
@@ -147,6 +153,7 @@ export default function HomePage() {
               const matchedName = results[0].name; // 검색 결과의 정확한 종목명 사용
               symbols.push(symbol);
               nameMap.set(symbol, matchedName);
+              foundMap.set(name, true); // 검색 성공
 
               // 매핑 저장
               const newMap = new Map(stockSymbolMap);
@@ -156,27 +163,31 @@ export default function HomePage() {
               // 검색 결과가 없으면 입력값 그대로 사용 (사용자가 직접 심볼을 입력한 경우)
               symbols.push(name);
               nameMap.set(name, name); // 심볼과 동일하게 설정
+              foundMap.set(name, false); // 검색 실패
             }
           } catch (error) {
             console.warn(`Failed to convert "${name}" to symbol:`, error);
             // 변환 실패 시 입력값 그대로 사용
             symbols.push(name);
             nameMap.set(name, name);
+            foundMap.set(name, false); // 검색 실패
           }
         }
 
-        return { symbols, nameMap };
+        return { symbols, nameMap, foundMap };
       };
 
-      const { symbols: stockSymbols, nameMap: symbolToNameMap } =
+      const { symbols: stockSymbols, nameMap: symbolToNameMap, foundMap } =
         await convertToSymbols(validStocks);
 
       // 검색 결과가 없는 종목이 있는지 확인
+      // 검색에 실패했고, 원본 입력값과 심볼이 동일한 경우만 오류로 처리
       const hasInvalidStocks = stockSymbols.some((symbol, index) => {
         const originalName = validStocks[index];
-        // 검색 결과가 없고, 원본 입력값과 심볼이 동일한 경우 (직접 심볼 입력이 아닌 경우)
+        const wasFound = foundMap.get(originalName) === true;
+        // 검색 실패 && 원본과 심볼이 동일 && 빈 문자열이 아닌 경우
         return (
-          !stockSymbolMap.has(originalName) &&
+          !wasFound &&
           symbol === originalName &&
           originalName.trim().length > 0
         );
@@ -185,8 +196,9 @@ export default function HomePage() {
       if (hasInvalidStocks) {
         const invalidNames = validStocks.filter((name, index) => {
           const symbol = stockSymbols[index];
+          const wasFound = foundMap.get(name) === true;
           return (
-            !stockSymbolMap.has(name) &&
+            !wasFound &&
             symbol === name &&
             name.trim().length > 0
           );

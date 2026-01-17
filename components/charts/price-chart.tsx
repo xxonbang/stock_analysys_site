@@ -64,7 +64,7 @@ export function PriceChart({
             borderRadius: '8px',
             padding: '8px',
           }}
-          formatter={(value: number) => value.toLocaleString()}
+          formatter={(value: number | undefined) => value?.toLocaleString() ?? ''}
           labelFormatter={(label) => `날짜: ${label}`}
         />
         {/* 주가 라인 (먼저 렌더링하여 범례에서 뒤로 배치) */}
@@ -120,7 +120,7 @@ export function PriceChart({
             
             // 원하는 순서대로 정렬: 5일 → 20일 → 60일 → 주가 → 볼린저 밴드
             const order = ['5일 이동평균선', '20일 이동평균선', '60일 이동평균선', '주가', '볼린저 밴드 상단선', '볼린저 밴드 중심선', '볼린저 밴드 하단선'];
-            const sortedPayload = payload.sort((a, b) => {
+            const sortedPayload = [...payload].sort((a, b) => {
               const aIndex = order.findIndex(name => a.value === name);
               const bIndex = order.findIndex(name => b.value === name);
               if (aIndex === -1 && bIndex === -1) return 0;

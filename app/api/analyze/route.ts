@@ -801,7 +801,7 @@ export async function POST(request: NextRequest) {
       const ma60 = calculateMA(closes, 60);
       const ma120 = calculateMA(closes, 120);
 
-      const disparity = calculateDisparity(stockData.price, ma20);
+      const disparity = ma20 !== null ? calculateDisparity(stockData.price, ma20) : null;
 
       // 마켓 데이터 구성
       const marketData: AnalyzeResult["marketData"] = {
@@ -811,15 +811,19 @@ export async function POST(request: NextRequest) {
         volume: stockData.volume,
         marketCap: stockData.marketCap,
         ...(indicators.rsi && { rsi: rsiValue }),
-        ...(indicators.movingAverages && {
-          movingAverages: {
-            ma5,
-            ma20,
-            ma60,
-            ma120,
-          },
-        }),
-        ...(indicators.disparity && { disparity }),
+        ...(indicators.movingAverages &&
+          ma5 !== null &&
+          ma20 !== null &&
+          ma60 !== null &&
+          ma120 !== null && {
+            movingAverages: {
+              ma5,
+              ma20,
+              ma60,
+              ma120,
+            },
+          }),
+        ...(indicators.disparity && disparity !== null && { disparity }),
         ...(supplyDemand && { supplyDemand }),
         ...(indicators.fearGreed && vix !== null && { vix }),
         ...(indicators.exchangeRate &&

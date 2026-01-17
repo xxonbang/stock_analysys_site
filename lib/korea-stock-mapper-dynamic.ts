@@ -34,7 +34,7 @@ async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
   return new Promise((resolve, reject) => {
     // 종합적인 데이터 소스를 활용하는 스크립트 사용
     const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
-    const pythonProcess = spawn('python3', [scriptPath]);
+    const pythonProcess = spawn('python3.11', [scriptPath]);
 
     let output = '';
     let errorOutput = '';

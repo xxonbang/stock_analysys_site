@@ -70,7 +70,7 @@ export function RSIChart({ data, currentRSI }: RSIChartProps) {
             borderRadius: '8px',
             padding: '8px',
           }}
-          formatter={(value: number) => value.toFixed(2)}
+          formatter={(value: number | undefined) => value?.toFixed(2) ?? ''}
         />
         <Legend />
         

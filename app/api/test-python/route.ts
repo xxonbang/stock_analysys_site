@@ -22,7 +22,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return new Promise<NextResponse>((resolve) => {
     const scriptPath = join(process.cwd(), "scripts", "test_python_stock.py");
-    const pythonProcess = spawn("python3", [scriptPath, symbol]);
+    const pythonProcess = spawn("python3.11", [scriptPath, symbol]);
 
     let output = "";
     let errorOutput = "";

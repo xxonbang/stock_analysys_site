@@ -122,13 +122,14 @@ export async function validateStockData(data: unknown): Promise<StockData> {
       throw new Error(`historicalData[${index}] is not an object`);
     }
 
-    const date = String(item.date || '');
+    const itemObj = item as Record<string, unknown>;
+    const date = String(itemObj.date || '');
     if (!date) {
       throw new Error(`historicalData[${index}].date is required`);
     }
 
-    const close = validateNumber(item.close, `historicalData[${index}].close`, false, false);
-    const volume = validateNumber(item.volume, `historicalData[${index}].volume`, true, false);
+    const close = validateNumber(itemObj.close, `historicalData[${index}].close`, false, false);
+    const volume = validateNumber(itemObj.volume, `historicalData[${index}].volume`, true, false);
 
     return {
       date,

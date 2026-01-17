@@ -280,7 +280,7 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
     const ma20 = calculateMA(closes, 20);
     const ma60 = calculateMA(closes, 60);
     const ma120 = calculateMA(closes, 120);
-    const disparity = calculateDisparity(currentPrice, ma20);
+    const disparity = ma20 !== null ? calculateDisparity(currentPrice, ma20) : null;
 
     // Market cap은 별도 API 호출 필요 (선택사항)
     // const companyProfile = await finnhubRequest('/stock/profile2', { symbol });
@@ -299,12 +299,12 @@ export async function fetchStockDataFinnhub(symbol: string): Promise<StockData> 
       // marketCap: companyProfile?.marketCapitalization,
       rsi,
       movingAverages: {
-        ma5,
-        ma20,
-        ma60,
-        ma120,
+        ma5: ma5 ?? 0,
+        ma20: ma20 ?? 0,
+        ma60: ma60 ?? 0,
+        ma120: ma120 ?? 0,
       },
-      disparity,
+      disparity: disparity ?? 0,
       historicalData,
     };
   } catch (error) {

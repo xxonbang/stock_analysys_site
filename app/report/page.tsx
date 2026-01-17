@@ -1013,11 +1013,11 @@ export default function ReportPage() {
                     저항선 (최근 고점 기준 3개):
                   </div>
                   <div className="text-gray-600 break-words flex flex-wrap gap-x-3 gap-y-1">
-                    {marketData.supportResistance.resistanceLevels.map(
+                    {marketData.supportResistance?.resistanceLevels.map(
                       (l, idx) => {
                         // 디버깅: 날짜 데이터 확인
                         const allDates =
-                          marketData.supportResistance.resistanceDates || [];
+                          marketData.supportResistance?.resistanceDates || [];
                         const date = allDates[idx] || "";
 
                         // 디버깅 로그
@@ -1027,7 +1027,7 @@ export default function ReportPage() {
                             {
                               resistanceDates: allDates,
                               resistanceLevels:
-                                marketData.supportResistance.resistanceLevels,
+                                marketData.supportResistance?.resistanceLevels,
                               index: idx,
                             }
                           );
@@ -1088,11 +1088,11 @@ export default function ReportPage() {
                     지지선 (최근 저점 기준 3개):
                   </div>
                   <div className="text-gray-600 break-words flex flex-wrap gap-x-3 gap-y-1">
-                    {marketData.supportResistance.supportLevels.map(
+                    {marketData.supportResistance?.supportLevels.map(
                       (l, idx) => {
                         // 디버깅: 날짜 데이터 확인
                         const allDates =
-                          marketData.supportResistance.supportDates || [];
+                          marketData.supportResistance?.supportDates || [];
                         const date = allDates[idx] || "";
 
                         // 디버깅 로그
@@ -1100,7 +1100,7 @@ export default function ReportPage() {
                           console.warn("[Report Page] Support dates missing:", {
                             supportDates: allDates,
                             supportLevels:
-                              marketData.supportResistance.supportLevels,
+                              marketData.supportResistance?.supportLevels,
                             index: idx,
                           });
                         }
@@ -1157,10 +1157,10 @@ export default function ReportPage() {
                 </div>
                 <div
                   className={`text-sm sm:text-base font-bold mt-3 pt-2 border-t border-gray-200 flex items-center gap-1.5 flex-wrap ${
-                    marketData.supportResistance.currentPosition ===
+                    marketData.supportResistance?.currentPosition ===
                     "near_resistance"
                       ? "text-red-600"
-                      : marketData.supportResistance.currentPosition ===
+                      : marketData.supportResistance?.currentPosition ===
                         "near_support"
                       ? "text-green-600"
                       : "text-gray-600"
@@ -1174,12 +1174,12 @@ export default function ReportPage() {
                     let levelIndex = -1;
 
                     if (
-                      marketData.supportResistance.currentPosition ===
+                      marketData.supportResistance?.currentPosition ===
                       "near_resistance"
                     ) {
                       // 가장 가까운 저항선 찾기
                       const distances =
-                        marketData.supportResistance.resistanceLevels.map(
+                        marketData.supportResistance?.resistanceLevels.map(
                           (level, idx) => ({
                             index: idx,
                             distance: Math.abs(level - currentPrice),
@@ -1191,12 +1191,12 @@ export default function ReportPage() {
                       levelIndex = nearest.index;
                       positionText = `🔴 ${levelIndex + 1}차 저항선 근처`;
                     } else if (
-                      marketData.supportResistance.currentPosition ===
+                      marketData.supportResistance?.currentPosition ===
                       "near_support"
                     ) {
                       // 가장 가까운 지지선 찾기
                       const distances =
-                        marketData.supportResistance.supportLevels.map(
+                        marketData.supportResistance?.supportLevels.map(
                           (level, idx) => ({
                             index: idx,
                             distance: Math.abs(level - currentPrice),

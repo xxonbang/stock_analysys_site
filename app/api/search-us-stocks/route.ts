@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
         const { join } = await import('path');
         const scriptPath = join(process.cwd(), 'scripts', 'get_us_stock_listing.py');
         
-        const pythonProcess = spawn('python3', [scriptPath]);
+        const pythonProcess = spawn('python3.11', [scriptPath]);
         let output = '';
         let errorOutput = '';
 
