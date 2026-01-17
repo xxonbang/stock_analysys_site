@@ -1,0 +1,104 @@
+name: Update Stock Symbols
+
+# 워크플로우 설명
+# 이 워크플로우는 매일 자동으로 symbols.json 파일을 업데이트합니다.
+
+on:
+  # 스케줄 실행: 매일 한국시간 오전 2시 (UTC 17:00)에 실행
+  schedule:
+    - cron: '0 17 * * *'  # UTC 17:00 = 한국시간 다음날 02:00
+  # 수동 실행도 가능하도록 설정
+  workflow_dispatch:
+
+jobs:
+  update-symbols:
+    name: Update Stock Symbols JSON
+    runs-on: ubuntu-latest  # GitHub Actions의 무료 Ubuntu 가상 머신 사용
+    
+    steps:
+      # 1단계: 저장소 코드 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 변경사항을 커밋하기 위해 토큰 권한 필요
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 기본 브랜치 체크아웃
+          ref: ${{ github.ref }}
+      
+      # 2단계: Python 환경 설정
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # pip 캐시 사용으로 설치 속도 향상
+          cache: 'pip'
+      
+      # 3단계: Python 패키지 설치
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r api/requirements.txt
+          # symbols.json 생성에 필요한 추가 패키지
+          pip install requests beautifulsoup4
+      
+      # 4단계: 환경 변수 설정
+      # GitHub Secrets에서 FINNHUB_API_KEY를 가져와서 환경 변수로 설정
+      - name: Set up environment variables
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          echo "환경 변수 설정 완료"
+          # API 키가 설정되었는지 확인 (보안을 위해 길이만 확인)
+          if [ -z "$FINNHUB_API_KEY" ]; then
+            echo "⚠️ 경고: FINNHUB_API_KEY가 설정되지 않았습니다. 미국 주식 리스트를 가져올 수 없습니다."
+          else
+            echo "✅ FINNHUB_API_KEY가 설정되었습니다."
+          fi
+      
+      # 5단계: symbols.json 생성
+      - name: Generate symbols.json
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          echo "종목 리스트 생성 시작..."
+          python3.11 scripts/generate_symbols_json.py
+          echo "✅ symbols.json 생성 완료"
+      
+      # 6단계: 변경사항 확인 및 커밋
+      - name: Check for changes
+        id: check-changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # 변경사항이 있는지 확인
+          if git diff --quiet public/data/symbols.json; then
+            echo "변경사항 없음"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "변경사항 발견"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+      
+      # 7단계: 변경사항이 있으면 커밋 및 푸시
+      - name: Commit and push changes
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          git add public/data/symbols.json
+          git commit -m "🤖 자동 업데이트: 종목 리스트 갱신 [$(date +'%Y-%m-%d %H:%M:%S')]"
+          git push origin HEAD:${{ github.ref }}
+        env:
+          # GitHub Actions에서 자동으로 제공되는 토큰 사용
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # 8단계: 완료 메시지
+      - name: Summary
+        if: steps.check-changes.outputs.has_changes == 'true'
+        run: |
+          echo "✅ symbols.json이 성공적으로 업데이트되었습니다!"
+          echo "변경사항이 저장소에 커밋되었습니다."
+      
+      - name: No changes
+        if: steps.check-changes.outputs.has_changes == 'false'
+        run: |
+          echo "ℹ️ 변경사항이 없습니다. symbols.json이 이미 최신 상태입니다."

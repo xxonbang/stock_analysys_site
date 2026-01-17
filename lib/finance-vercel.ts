@@ -235,13 +235,27 @@ export async function fetchStocksDataBatchVercel(
         const isTicker = /^\d{6}$/.test(normalized) || normalized.includes('.KS') || normalized.includes('.KQ');
         
         if (isKoreanName && !isTicker) {
-          // 동적 매핑을 한 번 더 시도
-          if (useDynamicMapping) {
-            try {
-              const { searchTickerByName } = await import('./korea-stock-mapper-dynamic');
-              let ticker = await searchTickerByName(normalized);
-              
-              // 동적 검색 실패 시 실시간 네이버 금융 검색 시도
+          // 1. 로컬 검색 우선 시도 (안정성 100%)
+          try {
+            const { findTickerByNameServer } = await import('./local-stock-search-server');
+            const localTicker = await findTickerByNameServer(normalized);
+            
+            if (localTicker) {
+              normalized = `${localTicker}.KS`;
+              logger.debug(`[Symbol Normalization] Local search found: ${symbol} -> ${normalized}`);
+            }
+          } catch (localError) {
+            logger.debug('[Symbol Normalization] Local search failed, trying dynamic mapping:', localError);
+          }
+          
+          // 2. 로컬 검색 실패 시 동적 매핑 시도
+          if (!normalized.includes('.KS') && !normalized.includes('.KQ') && !/^\d{6}$/.test(normalized)) {
+            if (useDynamicMapping) {
+              try {
+                const { searchTickerByName } = await import('./korea-stock-mapper-dynamic');
+                let ticker = await searchTickerByName(normalized);
+                
+                // 동적 검색 실패 시 실시간 네이버 금융 검색 시도
               if (!ticker) {
                 try {
                   logger.debug(`[Symbol Normalization] Trying real-time Naver Finance search for: ${normalized}`);
