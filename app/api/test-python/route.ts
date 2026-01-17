@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawn } from "child_process";
 import { join } from "path";
+import { findPythonCommand } from "@/lib/utils";
 
 /**
  * Python 스크립트를 직접 실행하는 테스트 API
@@ -20,9 +21,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const searchParams = request.nextUrl.searchParams;
   const symbol = searchParams.get("symbol") || "AAPL";
 
-  return new Promise<NextResponse>((resolve) => {
-    const scriptPath = join(process.cwd(), "scripts", "test_python_stock.py");
-    const pythonProcess = spawn("python3.11", [scriptPath, symbol]);
+  return new Promise<NextResponse>(async (resolve) => {
+    try {
+      const { command: pythonCommand } = await findPythonCommand();
+      const scriptPath = join(process.cwd(), "scripts", "test_python_stock.py");
+      const pythonProcess = spawn(pythonCommand, [scriptPath, symbol]);
 
     let output = "";
     let errorOutput = "";
@@ -98,5 +101,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         );
       }
     });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      resolve(
+        NextResponse.json(
+          {
+            error: `Failed to find Python command: ${errorMessage}`,
+          },
+          { status: 500 }
+        )
+      );
+    }
   });
 }

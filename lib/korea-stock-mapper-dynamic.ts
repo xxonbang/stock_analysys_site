@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import { join } from 'path';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
+import { findPythonCommand } from './utils';
 
 // 캐시 파일 경로
 const CACHE_DIR = join(process.cwd(), '.cache');
@@ -26,15 +27,35 @@ interface CachedStockListing {
   timestamp: number;
 }
 
+// Python 명령어 캐시
+let cachedPythonCommand: string | null = null;
+
+async function getPythonCommand(): Promise<string> {
+  if (cachedPythonCommand) {
+    return cachedPythonCommand;
+  }
+  
+  try {
+    const { command } = await findPythonCommand();
+    cachedPythonCommand = command;
+    return command;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Python command not found: ${errorMessage}`);
+  }
+}
+
 /**
  * Python 스크립트를 통해 KRX 전체 종목 리스트 가져오기
  * 종합적인 데이터 소스를 활용하여 최대한 완전한 리스트 확보
  */
 async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
-  return new Promise((resolve, reject) => {
-    // 종합적인 데이터 소스를 활용하는 스크립트 사용
-    const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
-    const pythonProcess = spawn('python3.11', [scriptPath]);
+  return new Promise(async (resolve, reject) => {
+    try {
+      const pythonCommand = await getPythonCommand();
+      // 종합적인 데이터 소스를 활용하는 스크립트 사용
+      const scriptPath = join(process.cwd(), 'scripts', 'get_comprehensive_stock_listing.py');
+      const pythonProcess = spawn(pythonCommand, [scriptPath]);
 
     let output = '';
     let errorOutput = '';
@@ -81,6 +102,9 @@ async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
         reject(new Error(`Failed to parse Python output: ${e instanceof Error ? e.message : String(e)}. Output: ${output.substring(0, 500)}`));
       }
     });
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 

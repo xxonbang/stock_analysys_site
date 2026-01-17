@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { StockSuggestion } from '@/lib/stock-search';
 import type { FinnhubStockSymbol } from '@/lib/finnhub-symbols';
+import { findPythonCommand } from '@/lib/utils';
 
 /**
  * 미국 주식 검색 API Route
@@ -110,9 +111,10 @@ export async function GET(request: NextRequest) {
       try {
         const { spawn } = await import('child_process');
         const { join } = await import('path');
+        const { command: pythonCommand } = await findPythonCommand();
         const scriptPath = join(process.cwd(), 'scripts', 'get_us_stock_listing.py');
         
-        const pythonProcess = spawn('python3.11', [scriptPath]);
+        const pythonProcess = spawn(pythonCommand, [scriptPath]);
         let output = '';
         let errorOutput = '';
 

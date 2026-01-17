@@ -16,7 +16,7 @@ import { join } from 'path';
 import { normalizeStockSymbol, normalizeStockSymbolHybrid } from './korea-stock-mapper';
 import { validateStockData } from './data-validator';
 import { metrics } from './data-metrics';
-import { logger, toAppError } from './utils';
+import { logger, toAppError, findPythonCommand } from './utils';
 
 /**
  * Python 스크립트를 실행하여 주식 데이터 수집
@@ -49,10 +49,31 @@ interface PythonScriptResult {
   error?: string;
 }
 
+// Python 명령어 캐시 (한 번만 찾고 재사용)
+let cachedPythonCommand: string | null = null;
+
+async function getPythonCommand(): Promise<string> {
+  if (cachedPythonCommand) {
+    return cachedPythonCommand;
+  }
+  
+  try {
+    const { command } = await findPythonCommand();
+    cachedPythonCommand = command;
+    return command;
+  } catch (error) {
+    const appError = toAppError(error, 'Python command not found');
+    logger.error('[Python] Failed to find Python command:', appError.message);
+    throw appError;
+  }
+}
+
 async function runPythonScript(symbol: string, period: string = '1m'): Promise<PythonScriptResult> {
-  return new Promise((resolve, reject) => {
-    const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
-    const pythonProcess = spawn('python3.11', [scriptPath, symbol, period]);
+  return new Promise(async (resolve, reject) => {
+    try {
+      const pythonCommand = await getPythonCommand();
+      const scriptPath = join(process.cwd(), 'scripts', 'test_python_stock.py');
+      const pythonProcess = spawn(pythonCommand, [scriptPath, symbol, period]);
 
     let output = '';
     let errorOutput = '';
@@ -126,6 +147,9 @@ async function runPythonScript(symbol: string, period: string = '1m'): Promise<P
         reject(new Error(`Failed to parse Python output: ${errorMsg}. Output length: ${output.length}, Preview: ${output.substring(0, 1000)}`));
       }
     });
+    } catch (error) {
+      reject(error);
+    }
   });
 }
 

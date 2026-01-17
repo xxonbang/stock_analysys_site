@@ -6,13 +6,28 @@ import os
 # 환경 변수에서 경로 확인
 sys.path.insert(0, os.path.dirname(__file__))
 
+# yfinance-cache는 Python 3.9에서 타입 힌트 및 multiprocessing 문제로 실패할 수 있음
+# 일반 yfinance로 fallback
+yf = None
 try:
     import yfinance_cache as yf
+except Exception as e:
+    # Python 3.9 호환성 문제로 yfinance-cache 실패 시 일반 yfinance 사용
+    try:
+        import yfinance as yf
+        print("Using regular yfinance (yfinance-cache not compatible)", file=sys.stderr)
+    except ImportError:
+        print(f"ERROR: yfinance not installed: {e}", file=sys.stderr)
+        yf = None
+
+try:
     import FinanceDataReader as fdr
     import pandas as pd
     from datetime import datetime, timedelta
 except ImportError as e:
-    print(f"Import error: {e}", file=sys.stderr)
+    print(f"ERROR: Required packages not installed: {e}", file=sys.stderr)
+    fdr = None
+    pd = None
 
 def is_korea_stock(symbol: str) -> bool:
     """한국 주식인지 확인"""
@@ -80,6 +95,25 @@ class handler(BaseHTTPRequestHandler):
                 self.send_error(400, "Symbol required")
                 return
             
+            # 필수 패키지 확인
+            if yf is None:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'error': 'yfinance package is not installed. Please install it with: pip install yfinance'
+                }).encode('utf-8'))
+                return
+            
+            if fdr is None or pd is None:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'error': 'Required packages (FinanceDataReader, pandas) are not installed. Please install them with: pip install finance-datareader pandas numpy'
+                }).encode('utf-8'))
+                return
+            
             # 한국 주식인지 확인
             if is_korea_stock(symbol):
                 # FinanceDataReader 사용
@@ -93,7 +127,7 @@ class handler(BaseHTTPRequestHandler):
                     end_date.strftime('%Y-%m-%d')
                 )
             else:
-                # yfinance-cache 사용
+                # yfinance 사용 (yfinance-cache 또는 일반 yfinance)
                 ticker = yf.Ticker(symbol)
                 df = ticker.history(period="120d")
             
