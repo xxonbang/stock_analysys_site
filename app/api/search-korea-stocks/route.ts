@@ -183,6 +183,102 @@ export async function GET(request: NextRequest) {
       
       console.log(`[API] Combined stock list: ${combinedStockList.length} items (${stockList.length} from FinanceDataReader + ${finnhubStocks.length} from Finnhub)`);
 
+      // 종목을 찾지 못한 경우 실시간 네이버 금융 검색 시도
+      // 기존 리스트에서 정확한 매칭을 찾지 못한 경우에만 실행
+      const hasExactMatch = results.some(r => {
+        const nameNoSpace = r.name.replace(/\s+/g, '');
+        return nameNoSpace === koreanQuery || nameNoSpace.includes(koreanQuery);
+      });
+      
+      if (!hasExactMatch && koreanQuery && koreanQuery.length >= 2) {
+        try {
+          console.log(`[API] Stock not found in cache, trying real-time Naver Finance search for: "${koreanQuery}"`);
+          const { findPythonCommand } = await import('@/lib/python-utils');
+          const { spawn } = await import('child_process');
+          const { promisify } = await import('util');
+          const { join } = await import('path');
+          
+          const pythonCmd = findPythonCommand();
+          const scriptPath = join(process.cwd(), 'scripts', 'search_stock_by_name.py');
+          
+          const execPromise = promisify((callback: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+            const proc = spawn(pythonCmd.command, [scriptPath, koreanQuery], {
+              cwd: process.cwd(),
+              env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+            });
+            
+            let stdout = '';
+            let stderr = '';
+            
+            proc.stdout?.on('data', (data) => {
+              stdout += data.toString();
+            });
+            
+            proc.stderr?.on('data', (data) => {
+              stderr += data.toString();
+            });
+            
+            proc.on('close', (code) => {
+              if (code === 0) {
+                callback(null, stdout, stderr);
+              } else {
+                callback(new Error(`Python script exited with code ${code}: ${stderr}`));
+              }
+            });
+            
+            proc.on('error', (error) => {
+              callback(error);
+            });
+          });
+          
+          const { stdout } = await execPromise();
+          const searchResult = JSON.parse(stdout);
+          
+          if (searchResult.success && searchResult.data && searchResult.data.length > 0) {
+            console.log(`[API] Naver Finance search found ${searchResult.data.length} stocks`);
+            
+            // 검색어와 정확히 일치하는 종목 우선 찾기
+            const normalizedQuery = koreanQuery.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '');
+            const exactMatches: Array<{ Symbol: string; Name: string; Market: string }> = [];
+            const partialMatches: Array<{ Symbol: string; Name: string; Market: string }> = [];
+            
+            for (const stock of searchResult.data) {
+              if (stock.Symbol && stock.Name) {
+                const symbolKey = stock.Symbol.trim();
+                const normalizedName = stock.Name.trim().replace(/\s+/g, '').replace('㈜', '').replace('(주)', '');
+                
+                // 정확한 매칭 우선
+                if (normalizedName === normalizedQuery) {
+                  exactMatches.push({
+                    Symbol: symbolKey,
+                    Name: stock.Name.trim(),
+                    Market: stock.Market || 'KRX'
+                  });
+                } else if (normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName)) {
+                  partialMatches.push({
+                    Symbol: symbolKey,
+                    Name: stock.Name.trim(),
+                    Market: stock.Market || 'KRX'
+                  });
+                }
+              }
+            }
+            
+            // 정확한 매칭을 먼저 추가
+            for (const stock of [...exactMatches, ...partialMatches]) {
+              const existing = combinedStockList.find(s => s.Symbol === stock.Symbol);
+              if (!existing) {
+                combinedStockList.push(stock);
+              }
+            }
+            
+            console.log(`[API] Updated combined stock list: ${combinedStockList.length} items (${exactMatches.length} exact, ${partialMatches.length} partial)`);
+          }
+        } catch (searchError) {
+          console.warn('[API] Real-time Naver Finance search failed:', searchError);
+        }
+      }
+
       if (combinedStockList && combinedStockList.length > 0) {
         const existingSymbols = new Set(results.map(r => r.symbol.replace(/\.(KS|KQ)$/, '')));
 
@@ -199,31 +295,24 @@ export async function GET(request: NextRequest) {
           
           // 한글 검색어인 경우
           if (koreanQuery) {
-            // 1. 종목명에 검색어가 포함되는 경우 (가장 중요)
+            // 1. 정확한 매칭 (가장 우선)
+            if (stockNameNoSpace === koreanQuery) {
+              return true;
+            }
+            
+            // 2. 종목명이 검색어로 시작하는 경우 (정확한 매칭에 가까움)
+            if (stockNameNoSpace.startsWith(koreanQuery)) {
+              return true;
+            }
+            
+            // 3. 종목명에 검색어가 포함되는 경우 (부분 매칭)
             // 예: '나스닥' → 'KODEX 미국나스닥100', 'TIGER 나스닥100'
             if (stockNameNoSpace.includes(koreanQuery)) {
               console.log(`[API] Match found: "${stockName}" contains "${koreanQuery}"`);
               return true;
             }
             
-            // 2. 종목명이 검색어로 시작하는 경우
-            if (stockNameNoSpace.startsWith(koreanQuery)) {
-              return true;
-            }
-            
-            // 3. 역방향 매칭: 검색어가 종목명의 일부를 포함하는 경우
-            // 예: '나스닥100' 검색 시 '나스닥'이 포함된 종목도 매칭
-            if (koreanQuery.length > 2 && stockNameNoSpace.length > 2) {
-              // 검색어의 일부가 종목명에 포함되는지 확인
-              for (let i = 2; i <= koreanQuery.length; i++) {
-                const partial = koreanQuery.substring(0, i);
-                if (stockNameNoSpace.includes(partial)) {
-                  return true;
-                }
-              }
-            }
-            
-            // 4. 한글-영문 매핑 확인
+            // 4. 한글-영문 매핑 확인 (특수 케이스만)
             const koreanToEnglishMap: Record<string, string[]> = {
               '나스닥': ['nasdaq', 'ndaq'],
               '나스닥100': ['nasdaq 100', 'nasdaq100', 'nasdaq-100', 'nasdaq100'],
@@ -237,6 +326,9 @@ export async function GET(request: NextRequest) {
                 }
               }
             }
+            
+            // 역방향 매칭 제거: 검색어의 일부가 종목명에 포함되는 경우는 매칭하지 않음
+            // (예: '지투지바이오' 검색 시 '지투알'이 매칭되는 문제 방지)
           }
           
           // 영문/혼합 검색어인 경우
@@ -303,22 +395,34 @@ export async function GET(request: NextRequest) {
     const sortedResults = results.sort((a, b) => {
       const aName = a.name.replace(/\s+/g, '');
       const bName = b.name.replace(/\s+/g, '');
+      const query = koreanQuery || normalizedQuery;
       
-      // 검색어로 시작하는 종목 우선
+      // 1. 정확한 매칭 우선 (가장 중요)
+      const aExact = koreanQuery ? aName === koreanQuery : aName.toLowerCase() === normalizedQuery;
+      const bExact = koreanQuery ? bName === koreanQuery : bName.toLowerCase() === normalizedQuery;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      
+      // 2. 검색어로 시작하는 종목 우선
       const aStartsWith = koreanQuery ? aName.startsWith(koreanQuery) : aName.toLowerCase().startsWith(normalizedQuery);
       const bStartsWith = koreanQuery ? bName.startsWith(koreanQuery) : bName.toLowerCase().startsWith(normalizedQuery);
-      
       if (aStartsWith && !bStartsWith) return -1;
       if (!aStartsWith && bStartsWith) return 1;
       
-      // 검색어가 포함된 종목 우선 (하드코딩 매핑 우선)
+      // 3. 검색어가 포함된 종목 우선
       const aContains = koreanQuery ? aName.includes(koreanQuery) : aName.toLowerCase().includes(normalizedQuery);
       const bContains = koreanQuery ? bName.includes(koreanQuery) : bName.toLowerCase().includes(normalizedQuery);
-      
       if (aContains && !bContains) return -1;
       if (!aContains && bContains) return 1;
       
-      // 이름 길이 짧은 것 우선 (더 정확한 매칭)
+      // 4. 검색어와 길이가 비슷한 종목 우선 (더 정확한 매칭)
+      const aLengthDiff = Math.abs(aName.length - query.length);
+      const bLengthDiff = Math.abs(bName.length - query.length);
+      if (aLengthDiff !== bLengthDiff) {
+        return aLengthDiff - bLengthDiff;
+      }
+      
+      // 5. 이름 길이 짧은 것 우선 (더 정확한 매칭)
       if (aName.length !== bName.length) {
         return aName.length - bName.length;
       }

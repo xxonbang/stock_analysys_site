@@ -280,18 +280,30 @@ export async function searchStocks(query: string): Promise<StockSuggestion[]> {
         if (!aIsKorea && bIsKorea) return 1;
       }
       
-      // 검색어로 시작하는 종목 우선
       const aName = a.name.toLowerCase().replace(/\s+/g, '');
       const bName = b.name.toLowerCase().replace(/\s+/g, '');
       const queryLower = trimmedQuery.toLowerCase().replace(/\s+/g, '');
       
+      // 1. 정확한 매칭 우선 (가장 중요)
+      const aExact = aName === queryLower;
+      const bExact = bName === queryLower;
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      
+      // 2. 검색어로 시작하는 종목 우선
       const aStartsWith = aName.startsWith(queryLower) || a.symbol.toLowerCase().startsWith(queryLower);
       const bStartsWith = bName.startsWith(queryLower) || b.symbol.toLowerCase().startsWith(queryLower);
-      
       if (aStartsWith && !bStartsWith) return -1;
       if (!aStartsWith && bStartsWith) return 1;
       
-      // 이름 길이 짧은 것 우선 (더 정확한 매칭)
+      // 3. 검색어와 길이가 비슷한 종목 우선 (더 정확한 매칭)
+      const aLengthDiff = Math.abs(aName.length - queryLower.length);
+      const bLengthDiff = Math.abs(bName.length - queryLower.length);
+      if (aLengthDiff !== bLengthDiff) {
+        return aLengthDiff - bLengthDiff;
+      }
+      
+      // 4. 이름 길이 짧은 것 우선 (더 정확한 매칭)
       if (aName.length !== bName.length) {
         return aName.length - bName.length;
       }

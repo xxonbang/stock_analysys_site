@@ -229,14 +229,119 @@ export async function fetchStocksDataBatchVercel(
       try {
         // 통합된 하이브리드 방식 사용 (정적 + 동적)
         normalized = await normalizeStockSymbolHybrid(symbol, useDynamicMapping);
+        
+        // 한글 종목명이 티커로 변환되지 않은 경우 에러 발생
+        const isKoreanName = /[가-힣]/.test(normalized);
+        const isTicker = /^\d{6}$/.test(normalized) || normalized.includes('.KS') || normalized.includes('.KQ');
+        
+        if (isKoreanName && !isTicker) {
+          // 동적 매핑을 한 번 더 시도
+          if (useDynamicMapping) {
+            try {
+              const { searchTickerByName } = await import('./korea-stock-mapper-dynamic');
+              let ticker = await searchTickerByName(normalized);
+              
+              // 동적 검색 실패 시 실시간 네이버 금융 검색 시도
+              if (!ticker) {
+                try {
+                  logger.debug(`[Symbol Normalization] Trying real-time Naver Finance search for: ${normalized}`);
+                  const { findPythonCommand } = await import('./python-utils');
+                  const { spawn } = await import('child_process');
+                  const { promisify } = await import('util');
+                  const { join } = await import('path');
+                  
+                  const pythonCmd = findPythonCommand();
+                  const scriptPath = join(process.cwd(), 'scripts', 'search_stock_by_name.py');
+                  
+                  const execPromise = promisify((callback: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+                    const proc = spawn(pythonCmd.command, [scriptPath, normalized], {
+                      cwd: process.cwd(),
+                      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+                    });
+                    
+                    let stdout = '';
+                    let stderr = '';
+                    
+                    proc.stdout?.on('data', (data) => {
+                      stdout += data.toString();
+                    });
+                    
+                    proc.stderr?.on('data', (data) => {
+                      stderr += data.toString();
+                    });
+                    
+                    proc.on('close', (code) => {
+                      if (code === 0) {
+                        callback(null, stdout, stderr);
+                      } else {
+                        callback(new Error(`Python script exited with code ${code}: ${stderr}`));
+                      }
+                    });
+                    
+                    proc.on('error', (error) => {
+                      callback(error);
+                    });
+                  });
+                  
+                  const { stdout } = await execPromise();
+                  const searchResult = JSON.parse(stdout);
+                  
+                  if (searchResult.success && searchResult.data && searchResult.data.length > 0) {
+                    // 검색어와 정확히 일치하는 종목 찾기 (정확한 매칭 우선)
+                    const normalizedSearch = normalized.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '');
+                    
+                    // 1. 정확한 매칭 우선
+                    let exactMatch = searchResult.data.find((stock: { Name: string; Symbol: string }) => {
+                      const normalizedName = stock.Name.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '');
+                      return normalizedName === normalizedSearch;
+                    });
+                    
+                    // 2. 정확한 매칭이 없으면 부분 매칭 시도
+                    if (!exactMatch) {
+                      exactMatch = searchResult.data.find((stock: { Name: string; Symbol: string }) => {
+                        const normalizedName = stock.Name.replace(/\s+/g, '').replace('㈜', '').replace('(주)', '');
+                        return normalizedName.includes(normalizedSearch) || normalizedSearch.includes(normalizedName);
+                      });
+                    }
+                    
+                    if (exactMatch && exactMatch.Symbol) {
+                      ticker = exactMatch.Symbol;
+                      logger.debug(`[Symbol Normalization] Real-time search found: ${normalized} -> ${ticker} (${exactMatch.Name})`);
+                    } else {
+                      logger.warn(`[Symbol Normalization] Real-time search found ${searchResult.data.length} results but no exact match for: ${normalized}`);
+                    }
+                  } else {
+                    logger.warn(`[Symbol Normalization] Real-time search returned no results for: ${normalized}`);
+                  }
+                } catch (searchError) {
+                  logger.warn(`[Symbol Normalization] Real-time search failed for ${normalized}:`, searchError);
+                }
+              }
+              
+              if (ticker) {
+                normalized = `${ticker}.KS`;
+                logger.debug(`[Symbol Normalization] Dynamic mapping succeeded: ${symbol} -> ${normalized}`);
+              } else {
+                throw new Error(`종목 **"${symbol}"**을(를) 찾을 수 없습니다.\n\n정확한 종목명 또는 종목코드(6자리 숫자)를 입력해주세요.\n예: "삼성전자" 또는 "005930"`);
+              }
+            } catch (dynamicError) {
+              const errorMessage = dynamicError instanceof Error ? dynamicError.message : String(dynamicError);
+              logger.error(`[Symbol Normalization] Dynamic mapping failed for ${symbol}:`, errorMessage);
+              throw new Error(`종목 "${symbol}"을(를) 찾을 수 없습니다. 정확한 종목명 또는 티커를 입력해주세요.`);
+            }
+          } else {
+            throw new Error(`종목 "${symbol}"을(를) 찾을 수 없습니다. 정확한 종목명 또는 티커를 입력해주세요.`);
+          }
+        }
       } catch (error) {
-        // 정규화 실패 시 원본 사용
-        console.error(`[Symbol Normalization] Failed to normalize ${symbol}, using original:`, error);
-        normalized = symbol;
+        // 정규화 실패 시 에러를 그대로 전달 (사용자에게 명확한 메시지 제공)
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`[Symbol Normalization] Failed to normalize ${symbol}:`, errorMessage);
+        throw error; // 원본 사용 대신 에러를 전달하여 명확한 메시지 제공
       }
       
       if (normalized !== symbol) {
-        console.log(`[Symbol Normalization] ${symbol} -> ${normalized}`);
+        logger.debug(`[Symbol Normalization] ${symbol} -> ${normalized}`);
       }
       
       return {
@@ -257,11 +362,23 @@ export async function fetchStocksDataBatchVercel(
     // 배치 내에서는 병렬 처리
     const batchPromises = batch.map(async ({ original, normalized }) => {
       try {
+        // 한글 종목명이 티커로 변환되지 않은 경우 에러 발생
+        const isKoreanName = /[가-힣]/.test(normalized);
+        const isTicker = /^\d{6}$/.test(normalized) || normalized.includes('.KS') || normalized.includes('.KQ');
+        
+        if (isKoreanName && !isTicker) {
+          throw new Error(`종목 "${original}"을(를) 찾을 수 없습니다. 정확한 종목명 또는 티커를 입력해주세요.`);
+        }
+        
         const stockData = await fetchStockDataVercel(normalized, period);
         return { original, stockData };
       } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`[fetchStocksDataBatchVercel] Failed to fetch data for ${original} (${normalized}):`, errorMessage);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`[fetchStocksDataBatchVercel] Failed to fetch data for ${original} (${normalized}):`, errorMessage);
+        // 심볼 정규화 실패인 경우 명확한 에러 메시지 제공
+        if (errorMessage.includes('찾을 수 없습니다')) {
+          throw error;
+        }
         return null;
       }
     });

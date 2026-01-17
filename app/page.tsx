@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,12 +29,32 @@ import type { AnalysisPeriod } from "@/lib/types";
 
 export default function HomePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
   const [stocks, setStocks] = useState<string[]>([""]);
   // 종목명 -> 심볼 매핑 (분석 시 심볼로 변환하기 위해 사용)
   const [stockSymbolMap, setStockSymbolMap] = useState<Map<string, string>>(
     new Map()
   );
+  
+  // URL 쿼리 파라미터에서 종목명 읽기 (오류 페이지에서 전달된 경우)
+  useEffect(() => {
+    const stocksParam = searchParams.get('stocks');
+    if (stocksParam) {
+      try {
+        const stockNames = stocksParam.split(',').map(s => decodeURIComponent(s)).filter(s => s.trim() !== '');
+        if (stockNames.length > 0) {
+          // 종목명을 입력 필드에 설정
+          setStocks(stockNames.length <= 5 ? stockNames : stockNames.slice(0, 5));
+          
+          // URL에서 쿼리 파라미터 제거 (깔끔하게)
+          router.replace('/', { scroll: false });
+        }
+      } catch (error) {
+        console.warn('Failed to parse stocks parameter:', error);
+      }
+    }
+  }, [searchParams, router]);
   const [period, setPeriod] = useState<AnalysisPeriod>("1m"); // 향후 전망 분석 기간
   const [historicalPeriod, setHistoricalPeriod] =
     useState<AnalysisPeriod>("3m"); // 과거 이력 분석 기간
@@ -142,8 +162,19 @@ export default function HomePage() {
             continue;
           }
 
-          // 매핑이 없으면 종목명으로 검색하여 심볼 찾기
+          // 매핑이 없으면 종목명을 티커 코드로 변환 (필수)
           try {
+            // 1. 티커 코드인지 확인 (6자리 숫자)
+            if (/^\d{6}$/.test(name)) {
+              // 이미 티커 코드인 경우
+              const symbol = `${name}.KS`;
+              symbols.push(symbol);
+              nameMap.set(symbol, name);
+              foundMap.set(name, true);
+              continue;
+            }
+
+            // 2. 종목명으로 검색하여 티커 코드 찾기
             const { searchStocks } = await import("@/lib/stock-search");
             const results = await searchStocks(name);
 
@@ -160,17 +191,36 @@ export default function HomePage() {
               newMap.set(name, symbol);
               setStockSymbolMap(newMap);
             } else {
-              // 검색 결과가 없으면 입력값 그대로 사용 (사용자가 직접 심볼을 입력한 경우)
-              symbols.push(name);
-              nameMap.set(name, name); // 심볼과 동일하게 설정
-              foundMap.set(name, false); // 검색 실패
+              // 검색 결과가 없으면 추가 변환 시도
+              try {
+                // normalizeStockSymbolHybrid를 직접 사용하여 티커 코드로 변환 시도
+                const { normalizeStockSymbolHybrid } = await import("@/lib/korea-stock-mapper");
+                const normalized = await normalizeStockSymbolHybrid(name, true);
+                
+                // 티커 코드로 변환되었는지 확인
+                if (normalized !== name && (normalized.includes('.KS') || normalized.includes('.KQ') || /^\d{6}$/.test(normalized.replace(/\.(KS|KQ)$/, '')))) {
+                  symbols.push(normalized);
+                  nameMap.set(normalized, name);
+                  foundMap.set(name, true);
+                  
+                  // 매핑 저장
+                  const newMap = new Map(stockSymbolMap);
+                  newMap.set(name, normalized);
+                  setStockSymbolMap(newMap);
+                } else {
+                  // 변환 실패 - 에러 발생
+                  throw new Error(`종목 "${name}"을(를) 찾을 수 없습니다.`);
+                }
+              } catch (normalizeError) {
+                // 모든 변환 시도 실패
+                throw new Error(`종목 "${name}"을(를) 찾을 수 없습니다. 정확한 종목명 또는 종목코드(6자리 숫자)를 입력해주세요.`);
+              }
             }
           } catch (error) {
-            console.warn(`Failed to convert "${name}" to symbol:`, error);
-            // 변환 실패 시 입력값 그대로 사용
-            symbols.push(name);
-            nameMap.set(name, name);
-            foundMap.set(name, false); // 검색 실패
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`Failed to convert "${name}" to symbol:`, errorMessage);
+            // 변환 실패 시 에러를 전파하여 사용자에게 명확한 메시지 제공
+            throw new Error(errorMessage);
           }
         }
 
@@ -203,12 +253,18 @@ export default function HomePage() {
             name.trim().length > 0
           );
         });
+        
+        // 종목명을 강조하여 표시
+        const stockNamesList = invalidNames.map(name => `"${name}"`).join(", ");
+        const errorMessage = invalidNames.length === 1
+          ? `다음 종목을 찾을 수 없습니다:\n\n**${invalidNames[0]}**\n\n정확한 종목명 또는 종목코드(6자리 숫자)를 입력해주세요.\n예: "삼성전자" 또는 "005930"`
+          : `다음 종목들을 찾을 수 없습니다:\n\n${invalidNames.map(name => `• **${name}**`).join("\n")}\n\n정확한 종목명 또는 종목코드(6자리 숫자)를 입력해주세요.`;
+        
         sessionStorage.setItem(
           "analysisResults",
           JSON.stringify({
-            error: `다음 종목을 찾을 수 없습니다: ${invalidNames.join(
-              ", "
-            )}. 정확한 종목명 또는 종목코드를 입력해주세요.`,
+            error: errorMessage,
+            invalidStocks: invalidNames, // 종목명 배열도 별도로 저장
             results: [],
           })
         );

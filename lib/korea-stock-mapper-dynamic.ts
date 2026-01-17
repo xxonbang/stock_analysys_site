@@ -109,9 +109,9 @@ async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
 }
 
 /**
- * 캐시된 StockListing 데이터 읽기
+ * 캐시된 StockListing 데이터 읽기 (만료 여부 포함)
  */
-async function readCachedStockListing(): Promise<StockListingItem[] | null> {
+async function readCachedStockListing(): Promise<{ data: StockListingItem[]; isExpired: boolean } | null> {
   try {
     if (!existsSync(STOCK_LISTING_CACHE_FILE)) {
       return null;
@@ -122,11 +122,12 @@ async function readCachedStockListing(): Promise<StockListingItem[] | null> {
 
     // 캐시 만료 확인
     const now = Date.now();
-    if (now - cached.timestamp > CACHE_TTL) {
-      return null; // 캐시 만료
-    }
+    const isExpired = now - cached.timestamp > CACHE_TTL;
 
-    return cached.data;
+    return {
+      data: cached.data,
+      isExpired,
+    };
   } catch (error) {
     console.warn('Failed to read cached stock listing:', error);
     return null;
@@ -155,27 +156,68 @@ async function saveCachedStockListing(data: StockListingItem[]): Promise<void> {
 }
 
 /**
- * StockListing 데이터 가져오기 (캐시 우선)
+ * StockListing 데이터 가져오기 (캐시 우선, 만료된 캐시도 사용)
  */
 export async function getStockListing(): Promise<StockListingItem[]> {
-  // 1. 캐시 확인
+  // 1. 캐시 확인 (만료 여부와 관계없이)
+  let cachedData: StockListingItem[] | null = null;
+  let isExpired = false;
+  
   try {
     const cached = await readCachedStockListing();
-    if (cached && cached.length > 0) {
-      console.log(`[Dynamic Mapping] Using cached stock listing (${cached.length} stocks)`);
-      return cached;
+    if (cached && cached.data.length > 0) {
+      cachedData = cached.data;
+      isExpired = cached.isExpired;
+      
+      // 만료되지 않았으면 즉시 반환
+      if (!isExpired) {
+        console.log(`[Dynamic Mapping] Using cached stock listing (${cachedData.length} stocks)`);
+        return cachedData;
+      }
+      
+      // 만료되었어도 일단 사용 (백그라운드 갱신)
+      console.log(`[Dynamic Mapping] Cache expired, using stale cache (${cachedData.length} stocks) while refreshing in background...`);
     }
   } catch (error) {
     console.warn('[Dynamic Mapping] Failed to read cache, fetching fresh data:', error);
   }
 
-  // 2. Python 스크립트로 가져오기
+  // 2. 백그라운드에서 갱신 시도 (만료된 캐시가 있으면)
+  if (cachedData && isExpired) {
+    // 비동기로 백그라운드 갱신 (블로킹하지 않음)
+    fetchStockListingFromPython()
+      .then((data) => {
+        if (data && data.length > 0) {
+          saveCachedStockListing(data)
+            .then(() => {
+              console.log(`[Dynamic Mapping] Cache refreshed in background (${data.length} stocks)`);
+            })
+            .catch((cacheError) => {
+              console.warn('[Dynamic Mapping] Failed to save refreshed cache:', cacheError);
+            });
+        }
+      })
+      .catch((err) => {
+        console.warn('[Dynamic Mapping] Background refresh failed:', err);
+      });
+    
+    // 만료된 캐시라도 반환
+    return cachedData;
+  }
+
+  // 3. 캐시가 없으면 동기적으로 가져오기
   console.log('[Dynamic Mapping] Fetching stock listing from Python...');
   try {
     const data = await fetchStockListingFromPython();
     if (!data || data.length === 0) {
+      // 실패해도 만료된 캐시가 있으면 사용
+      if (cachedData) {
+        console.warn('[Dynamic Mapping] Fetch returned empty, using stale cache');
+        return cachedData;
+      }
       throw new Error('Stock listing returned empty data');
     }
+    
     // 캐시에 저장 (실패해도 계속 진행)
     try {
       await saveCachedStockListing(data);
@@ -185,18 +227,70 @@ export async function getStockListing(): Promise<StockListingItem[]> {
     }
     return data;
   } catch (error) {
+    // 실패해도 만료된 캐시가 있으면 사용
+    if (cachedData) {
+      console.warn('[Dynamic Mapping] Fetch failed, using stale cache:', error instanceof Error ? error.message : String(error));
+      return cachedData;
+    }
+    
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[Dynamic Mapping] Failed to fetch stock listing:', errorMessage);
-    // Python 스크립트 실패 시 빈 배열 반환 (검색 실패로 처리)
-    // 상위 함수에서 null을 반환하고, normalizeStockSymbolDynamic에서 원본 반환
-    throw error; // 상위에서 처리하도록 재throw
+    throw error;
   }
+}
+
+/**
+ * Levenshtein 거리 계산 (문자열 유사도 측정)
+ */
+function levenshteinDistance(str1: string, str2: string): number {
+  const matrix: number[][] = [];
+  
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i];
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j;
+  }
+  
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        );
+      }
+    }
+  }
+  
+  return matrix[str2.length][str1.length];
+}
+
+/**
+ * 문자열 유사도 계산 (0.0 ~ 1.0)
+ */
+function calculateSimilarity(str1: string, str2: string): number {
+  if (str1 === str2) return 1.0;
+  
+  const longer = str1.length > str2.length ? str1 : str2;
+  const shorter = str1.length > str2.length ? str2 : str1;
+  
+  if (longer.length === 0) return 1.0;
+  
+  const distance = levenshteinDistance(longer, shorter);
+  return (longer.length - distance) / longer.length;
 }
 
 /**
  * 한국 주식 이름으로 티커 검색 (동적)
  */
 export async function searchTickerByName(name: string): Promise<string | null> {
+  const searchStartTime = Date.now();
+  
   try {
     const stockList = await getStockListing();
     
@@ -204,6 +298,8 @@ export async function searchTickerByName(name: string): Promise<string | null> {
       console.warn('[Dynamic Mapping] Stock listing is empty');
       return null;
     }
+    
+    console.log(`[Dynamic Mapping] Searching "${name}" in ${stockList.length} stocks`);
     
     // 정확한 이름 매칭 시도 (공백 무시)
     const normalizedName = name.replace(/\s+/g, '');
@@ -216,29 +312,103 @@ export async function searchTickerByName(name: string): Promise<string | null> {
     );
     
     if (exactMatch && exactMatch.Symbol) {
-      console.log(`[Dynamic Mapping] Found exact match: ${name} -> ${exactMatch.Symbol}`);
+      const duration = Date.now() - searchStartTime;
+      console.log(`[Dynamic Mapping] Found exact match: ${name} -> ${exactMatch.Symbol} (${duration}ms)`);
       return exactMatch.Symbol;
     }
 
-    // 부분 매칭 시도 (포함 관계)
-    const partialMatch = stockList.find(
-      (stock) => {
-        if (!stock.Name || !stock.Symbol) return false;
-        return stock.Name.includes(name) || name.includes(stock.Name);
-      }
-    );
+    // 부분 매칭 시도 - 검색어가 종목명에 포함되는 경우만 (역방향 매칭 제거)
+    const partialMatches = stockList
+      .map((stock) => {
+        if (!stock.Name || !stock.Symbol) return null;
+        const stockName = stock.Name.replace(/\s+/g, '');
+        const searchName = normalizedName;
+        
+        // 검색어가 종목명에 포함되는 경우만 매칭
+        if (!stockName.includes(searchName)) return null;
+        
+        // 유사도 계산
+        const similarity = calculateSimilarity(searchName, stockName);
+        
+        return {
+          stock,
+          similarity,
+          stockName,
+        };
+      })
+      .filter((item): item is { stock: StockListingItem; similarity: number; stockName: string } => 
+        item !== null && item.similarity > 0.6 // 60% 이상 유사도만 고려
+      );
     
-    if (partialMatch && partialMatch.Symbol) {
-      console.log(`[Dynamic Mapping] Found partial match: ${name} -> ${partialMatch.Symbol} (${partialMatch.Name})`);
-      return partialMatch.Symbol;
+    if (partialMatches.length > 0) {
+      // 유사도와 기타 조건을 종합하여 최적 매칭 선택
+      const bestMatch = partialMatches.reduce((best, current) => {
+        if (!best) return current;
+        
+        const bestName = best.stockName;
+        const currentName = current.stockName;
+        
+        // 1. 정확한 매칭 우선
+        if (bestName === normalizedName && currentName !== normalizedName) return best;
+        if (currentName === normalizedName && bestName !== normalizedName) return current;
+        
+        // 2. 유사도가 높은 것 우선
+        if (current.similarity > best.similarity) return current;
+        if (best.similarity > current.similarity) return best;
+        
+        // 3. 검색어로 시작하는 종목 우선
+        const bestStartsWith = bestName.startsWith(normalizedName);
+        const currentStartsWith = currentName.startsWith(normalizedName);
+        if (currentStartsWith && !bestStartsWith) return current;
+        if (bestStartsWith && !currentStartsWith) return best;
+        
+        // 4. 검색어와 길이가 비슷한 종목 우선 (더 정확한 매칭)
+        const bestLengthDiff = Math.abs(bestName.length - normalizedName.length);
+        const currentLengthDiff = Math.abs(currentName.length - normalizedName.length);
+        if (currentLengthDiff < bestLengthDiff) return current;
+        if (bestLengthDiff < currentLengthDiff) return best;
+        
+        // 5. 이름 길이 짧은 것 우선 (더 정확한 매칭)
+        if (bestName.length !== currentName.length) {
+          return bestName.length < currentName.length ? best : current;
+        }
+        
+        return best;
+      });
+      
+      if (bestMatch && bestMatch.stock.Symbol) {
+        const duration = Date.now() - searchStartTime;
+        console.log(`[Dynamic Mapping] Found partial match: ${name} -> ${bestMatch.stock.Symbol} (${bestMatch.stock.Name}, similarity: ${(bestMatch.similarity * 100).toFixed(1)}%, ${duration}ms)`);
+        return bestMatch.stock.Symbol;
+      }
     }
 
-    console.log(`[Dynamic Mapping] No match found for: ${name}`);
+    // 실패 시 유사한 종목명 제안 (로깅용)
+    const suggestions = stockList
+      .map((stock) => {
+        if (!stock.Name || !stock.Symbol) return null;
+        const stockName = stock.Name.replace(/\s+/g, '');
+        const similarity = calculateSimilarity(normalizedName, stockName);
+        return { stock, similarity };
+      })
+      .filter((item): item is { stock: StockListingItem; similarity: number } => 
+        item !== null && item.similarity > 0.3
+      )
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 5)
+      .map((item) => `${item.stock.Name} (${(item.similarity * 100).toFixed(1)}%)`);
+    
+    const duration = Date.now() - searchStartTime;
+    console.log(`[Dynamic Mapping] No match found for: ${name} (${duration}ms)`);
+    if (suggestions.length > 0) {
+      console.log(`[Dynamic Mapping] Suggestions: ${suggestions.join(', ')}`);
+    }
+    
     return null;
   } catch (error) {
-    // getStockListing 실패 시 null 반환 (상위에서 원본 반환)
+    const duration = Date.now() - searchStartTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.warn(`[Dynamic Mapping] Failed to search ticker for ${name} (will use original symbol):`, errorMessage);
+    console.warn(`[Dynamic Mapping] Failed to search ticker for ${name} (${duration}ms):`, errorMessage);
     return null;
   }
 }
@@ -264,7 +434,20 @@ export async function normalizeStockSymbolDynamic(symbol: string): Promise<strin
       console.warn('[Dynamic Mapping] Failed to import static mapper, continuing with dynamic search:', importError);
     }
 
-    // 3. 동적 검색 (한글 이름인 경우만)
+    // 3. 티커 코드로 직접 검색 시도 (6자리 숫자인 경우)
+    if (/^\d{6}$/.test(symbol)) {
+      try {
+        const stockList = await getStockListing();
+        const tickerMatch = stockList.find((stock) => stock.Symbol === symbol);
+        if (tickerMatch) {
+          return `${symbol}.KS`;
+        }
+      } catch (error) {
+        console.warn(`[Dynamic Mapping] Ticker search failed for ${symbol}:`, error);
+      }
+    }
+
+    // 4. 동적 검색 (한글 이름인 경우만)
     const isKoreanName = /[가-힣]/.test(symbol);
     if (isKoreanName) {
       try {
@@ -278,7 +461,7 @@ export async function normalizeStockSymbolDynamic(symbol: string): Promise<strin
       }
     }
 
-    // 4. Fallback: 원본 반환
+    // 5. Fallback: 원본 반환
     return symbol;
   } catch (error) {
     // 전체 프로세스 실패 시 원본 반환

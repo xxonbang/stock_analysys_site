@@ -1,4 +1,5 @@
 #!/usr/bin/env python3.11
+# -*- coding: utf-8 -*-
 """
 Python 스크립트 직접 테스트
 Vercel Serverless Function과 동일한 로직을 테스트
@@ -6,6 +7,13 @@ Vercel Serverless Function과 동일한 로직을 테스트
 
 import sys
 import json
+import io
+
+# UTF-8 인코딩 설정 (한글 처리)
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 # yfinance-cache는 Python 3.9에서 타입 힌트 및 multiprocessing 문제로 실패할 수 있음
 # 일반 yfinance로 fallback
@@ -110,10 +118,56 @@ def fetch_stock(symbol: str, period: str = '1m'):
     # 한국 주식인지 확인
     if is_korea_stock(symbol):
         print("Using FinanceDataReader for Korean stock", file=sys.stderr)
-        korea_symbol = symbol.replace('.KS', '')
+        korea_symbol = symbol.replace('.KS', '').replace('.KQ', '')
         
-        # 한글 이름인 경우 FinanceDataReader가 이름으로도 조회 가능
-        # 하지만 티커가 더 안정적이므로 먼저 티커로 시도
+        # 한글 이름인지 확인 (6자리 숫자가 아니면 한글 이름으로 간주)
+        is_korean_name = not korea_symbol.isdigit()
+        
+        if is_korean_name:
+            # 한글 이름인 경우 먼저 티커로 변환 시도
+            print(f"Korean name detected: {korea_symbol}, searching for ticker...", file=sys.stderr)
+            ticker_found = False
+            
+            # 방법 1: StockListing을 사용하여 티커 찾기
+            try:
+                stock_list = fdr.StockListing('KRX')
+                # 정확한 이름 매칭 시도
+                matching = stock_list[stock_list['Name'] == korea_symbol]
+                if matching.empty:
+                    # 부분 매칭 시도
+                    matching = stock_list[stock_list['Name'].str.contains(korea_symbol, na=False, case=False)]
+                
+                if not matching.empty:
+                    korea_symbol = str(matching.iloc[0]['Symbol']).zfill(6)  # 6자리로 패딩
+                    print(f"Found ticker {korea_symbol} for {symbol}", file=sys.stderr)
+                    ticker_found = True
+            except Exception as listing_error:
+                error_msg = str(listing_error)
+                print(f"StockListing failed (will try direct name lookup): {error_msg}", file=sys.stderr)
+            
+            # 방법 2: StockListing 실패 시 FinanceDataReader가 이름으로 직접 조회 시도
+            if not ticker_found:
+                print(f"Trying direct name lookup with FinanceDataReader...", file=sys.stderr)
+                try:
+                    # FinanceDataReader가 한글 이름을 직접 처리할 수 있는지 시도
+                    df_test = fdr.DataReader(
+                        korea_symbol,
+                        start_date.strftime('%Y-%m-%d'),
+                        end_date.strftime('%Y-%m-%d')
+                    )
+                    if not df_test.empty:
+                        print(f"Direct name lookup succeeded for {korea_symbol}", file=sys.stderr)
+                        df = df_test
+                        ticker_found = True
+                except Exception as direct_error:
+                    error_msg = str(direct_error)
+                    print(f"Direct name lookup failed: {error_msg}", file=sys.stderr)
+            
+            # 방법 3: 모두 실패한 경우
+            if not ticker_found:
+                raise ValueError(f"종목 '{korea_symbol}'을(를) 찾을 수 없습니다. 정확한 종목명 또는 종목코드(6자리 숫자)를 입력해주세요. 예: '삼성전자' 또는 '005930'")
+        
+        # 티커로 데이터 수집 시도
         try:
             df = fdr.DataReader(
                 korea_symbol,
@@ -121,30 +175,9 @@ def fetch_stock(symbol: str, period: str = '1m'):
                 end_date.strftime('%Y-%m-%d')
             )
         except Exception as e:
-            # 티커로 실패하면 이름으로 시도
-            print(f"Ticker lookup failed, trying name lookup: {e}", file=sys.stderr)
-            try:
-                # StockListing을 사용하여 이름으로 티커 찾기
-                # KRX (코스피/코스닥) 전체 리스트 가져오기
-                try:
-                    stock_list = fdr.StockListing('KRX')
-                    matching = stock_list[stock_list['Name'].str.contains(korea_symbol, na=False, case=False)]
-                    if not matching.empty:
-                        korea_symbol = matching.iloc[0]['Symbol']
-                        print(f"Found ticker {korea_symbol} for {symbol}", file=sys.stderr)
-                        df = fdr.DataReader(
-                            korea_symbol,
-                            start_date.strftime('%Y-%m-%d'),
-                            end_date.strftime('%Y-%m-%d')
-                        )
-                    else:
-                        raise ValueError(f"Stock '{symbol}' not found in KRX listing")
-                except Exception as listing_error:
-                    # StockListing 실패 시 (API 오류 등) 원래 오류를 다시 발생
-                    print(f"StockListing failed: {listing_error}", file=sys.stderr)
-                    raise ValueError(f"Failed to fetch Korean stock data for {symbol}: {e}")
-            except Exception as e2:
-                raise ValueError(f"Failed to fetch Korean stock data for {symbol}: {e2}")
+            error_msg = str(e)
+            print(f"DataReader failed for {korea_symbol}: {error_msg}", file=sys.stderr)
+            raise ValueError(f"종목 '{korea_symbol}'의 데이터를 가져올 수 없습니다. 오류: {error_msg}")
     else:
         print("Using yfinance-cache for US stock", file=sys.stderr)
         try:

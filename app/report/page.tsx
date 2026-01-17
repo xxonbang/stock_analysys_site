@@ -84,6 +84,13 @@ export default function ReportPage() {
     }
   }, [results.length]); // results.length만 의존성으로 사용 (무한 루프 방지)
 
+  // 오류 페이지 표시 시 최상단으로 스크롤
+  useEffect(() => {
+    if (results.length === 0 && !isLoading) {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, [results.length, isLoading]);
+
   // 안전한 인덱스 계산 (항상 유효한 범위 내)
   const safeIndex =
     results.length > 0
@@ -129,17 +136,57 @@ export default function ReportPage() {
   if (results.length === 0) {
     // sessionStorage에서 오류 메시지 확인
     let errorMessage = "분석 결과가 없습니다.";
+    let invalidStocks: string[] = [];
     try {
       const stored = sessionStorage.getItem("analysisResults");
       if (stored) {
-        const data: AnalyzeResponse = JSON.parse(stored);
+        const data: AnalyzeResponse & { invalidStocks?: string[] } = JSON.parse(stored);
         if (data.error) {
           errorMessage = data.error;
+        }
+        if (data.invalidStocks) {
+          invalidStocks = data.invalidStocks;
         }
       }
     } catch (e) {
       // 무시
     }
+
+    // 종목명을 추출하여 강조 표시
+    const renderErrorMessage = () => {
+      if (invalidStocks.length > 0) {
+        return (
+          <div className="space-y-3">
+            <p className="text-red-700 font-medium">다음 종목{invalidStocks.length > 1 ? '들을' : '을'} 찾을 수 없습니다:</p>
+            <div className="space-y-2">
+              {invalidStocks.map((stock, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-2 p-3 bg-red-50 rounded-lg border border-red-200"
+                >
+                  <span className="text-red-600 font-bold text-lg">•</span>
+                  <span className="text-gray-900 font-bold text-lg">{stock}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-blue-800 text-sm font-medium mb-1">💡 입력 방법:</p>
+              <ul className="text-blue-700 text-sm space-y-1 list-disc list-inside">
+                <li>정확한 종목명을 입력하세요 (예: "삼성전자")</li>
+                <li>또는 6자리 종목코드를 입력하세요 (예: "005930")</li>
+              </ul>
+            </div>
+          </div>
+        );
+      }
+      
+      // 기존 오류 메시지가 있으면 그대로 표시 (마크다운 지원)
+      return (
+        <div className="prose prose-sm max-w-none">
+          <ReactMarkdown>{errorMessage}</ReactMarkdown>
+        </div>
+      );
+    };
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
@@ -166,14 +213,20 @@ export default function ReportPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 bg-white rounded-lg border border-red-200">
-                <p className="text-red-700 font-medium mb-2">오류 내용:</p>
-                <p className="text-gray-800 text-sm leading-relaxed">
-                  {errorMessage}
-                </p>
+                <p className="text-red-700 font-medium mb-3">오류 내용:</p>
+                {renderErrorMessage()}
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
                 <Button
-                  onClick={() => router.push("/")}
+                  onClick={() => {
+                    // 오류가 난 종목명을 쿼리 파라미터로 전달
+                    if (invalidStocks.length > 0) {
+                      const stocksParam = invalidStocks.map(s => encodeURIComponent(s)).join(',');
+                      router.push(`/?stocks=${stocksParam}`);
+                    } else {
+                      router.push("/");
+                    }
+                  }}
                   className="w-full sm:w-auto bg-red-600 hover:bg-red-700"
                 >
                   다시 분석하기

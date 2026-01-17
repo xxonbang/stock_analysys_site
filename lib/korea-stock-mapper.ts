@@ -84,8 +84,13 @@ export async function normalizeStockSymbolHybrid(
   useDynamicMapping: boolean = true
 ): Promise<string> {
   // 1. 이미 티커 형식인 경우
-  if (/^\d{6}$/.test(symbol) || symbol.includes('.KS')) {
-    return symbol.includes('.KS') ? symbol : `${symbol}.KS`;
+  if (/^\d{6}$/.test(symbol) || symbol.includes('.KS') || symbol.includes('.KQ')) {
+    // 티커 코드만 있는 경우 (.KS 또는 .KQ 추가)
+    if (/^\d{6}$/.test(symbol)) {
+      // 코스피/코스닥 구분 없이 .KS로 반환 (실제 데이터 조회 시 자동으로 올바른 시장으로 매핑됨)
+      return `${symbol}.KS`;
+    }
+    return symbol;
   }
 
   // 2. 정적 매핑 확인 (빠른 조회)
