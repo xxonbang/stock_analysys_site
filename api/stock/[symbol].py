@@ -34,17 +34,38 @@ def is_korea_stock(symbol: str) -> bool:
     return symbol.endswith('.KS') or (len(symbol) == 6 and symbol.isdigit())
 
 def calculate_rsi(prices, period=14):
-    """RSI 계산"""
-    deltas = pd.Series(prices).diff()
-    gains = deltas.where(deltas > 0, 0)
-    losses = -deltas.where(deltas < 0, 0)
-    
-    avg_gain = gains.rolling(window=period).mean()
-    avg_loss = losses.rolling(window=period).mean()
-    
+    """
+    RSI 계산 (Wilder's Smoothing Method)
+    TypeScript 버전과 동일한 알고리즘 사용
+    """
+    if len(prices) < period + 1:
+        return 50.0  # 데이터 부족 시 중립값 반환
+
+    price_series = pd.Series(prices)
+    deltas = price_series.diff()
+
+    gains = deltas.where(deltas > 0, 0.0)
+    losses = (-deltas).where(deltas < 0, 0.0)
+
+    # 초기 평균 (Simple Moving Average for first period)
+    first_avg_gain = gains.iloc[1:period+1].mean()
+    first_avg_loss = losses.iloc[1:period+1].mean()
+
+    # Wilder's Smoothing Method
+    avg_gain = first_avg_gain
+    avg_loss = first_avg_loss
+
+    for i in range(period + 1, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains.iloc[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses.iloc[i]) / period
+
+    if avg_loss == 0:
+        return 100.0
+
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
-    return float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50.0
+
+    return round(float(rsi), 2) if not pd.isna(rsi) else 50.0
 
 def calculate_indicators(df):
     """기술적 지표 계산"""
@@ -153,14 +174,18 @@ class handler(BaseHTTPRequestHandler):
             # 이격도 계산
             disparity = (current_price / indicators['ma20']) * 100 if indicators['ma20'] > 0 else 100.0
             
-            # Historical 데이터
+            # Historical 데이터 (high, low, open 포함)
             historical_data = []
             for idx, row in df.iterrows():
                 date_str = idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)
+                close_val = float(row['Close'])
                 historical_data.append({
                     'date': date_str,
-                    'close': float(row['Close']),
+                    'close': close_val,
                     'volume': int(row['Volume']) if 'Volume' in row and pd.notna(row['Volume']) else 0,
+                    'high': float(row['High']) if 'High' in row and pd.notna(row['High']) else close_val,
+                    'low': float(row['Low']) if 'Low' in row and pd.notna(row['Low']) else close_val,
+                    'open': float(row['Open']) if 'Open' in row and pd.notna(row['Open']) else close_val,
                 })
             
             result = {

@@ -89,10 +89,14 @@ export function calculateBollingerBands(
 
 /**
  * 변동성 계산 (표준편차 기반)
+ * @param prices 종가 배열 (과거 → 최신 순서)
+ * @param period 계산 기간 (기본 20일)
+ * @param useLogReturns 로그 수익률 사용 여부 (기본 true, 극단적 변동에 더 정확)
  */
 export function calculateVolatility(
   prices: number[],
-  period: number = 20
+  period: number = 20,
+  useLogReturns: boolean = true
 ): {
   volatility: number; // 변동성 (%)
   annualizedVolatility: number; // 연율화 변동성 (%)
@@ -105,20 +109,28 @@ export function calculateVolatility(
       volatilityRank: 'low',
     };
   }
-  
+
   // prices 배열은 "과거 → 최신" 순서이므로, 최근 period일은 slice(-period)로 가져옴
   const recentPrices = prices.slice(-period);
   const returns: number[] = [];
-  
-  // 수익률 계산: (오늘 가격 - 어제 가격) / 어제 가격
+
+  // 수익률 계산
   // recentPrices는 "과거 → 최신" 순서이므로, i-1이 어제, i가 오늘
   for (let i = 1; i < recentPrices.length; i++) {
     if (recentPrices[i - 1] > 0 && recentPrices[i] > 0) {
-      const returnRate = (recentPrices[i] - recentPrices[i - 1]) / recentPrices[i - 1];
+      let returnRate: number;
+      if (useLogReturns) {
+        // 로그 수익률: ln(오늘가격 / 어제가격)
+        // 극단적 가격 변동에서 더 정확하고, 수학적으로 시간 가산성을 가짐
+        returnRate = Math.log(recentPrices[i] / recentPrices[i - 1]);
+      } else {
+        // 단순 수익률: (오늘가격 - 어제가격) / 어제가격
+        returnRate = (recentPrices[i] - recentPrices[i - 1]) / recentPrices[i - 1];
+      }
       returns.push(returnRate);
     }
   }
-  
+
   if (returns.length === 0) {
     return {
       volatility: 0,
@@ -126,21 +138,21 @@ export function calculateVolatility(
       volatilityRank: 'low',
     };
   }
-  
+
   const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
   const variance = returns.reduce((sum, ret) => {
     return sum + Math.pow(ret - meanReturn, 2);
   }, 0) / returns.length;
-  
+
   const stdDev = Math.sqrt(variance);
   const volatility = stdDev * 100; // %
   const annualizedVolatility = volatility * Math.sqrt(252); // 연율화 (252 거래일)
-  
-  const volatilityRank = 
+
+  const volatilityRank =
     annualizedVolatility < 15 ? 'low' :
     annualizedVolatility < 30 ? 'medium' :
     'high';
-  
+
   return {
     volatility: Math.round(volatility * 100) / 100,
     annualizedVolatility: Math.round(annualizedVolatility * 100) / 100,
@@ -570,5 +582,529 @@ export function calculateSupportResistance(
     resistanceDates,
     supportDates,
     currentPosition,
+  };
+}
+
+/**
+ * EMA (지수이동평균) 계산
+ * @param prices 종가 배열 (과거 → 최신 순서)
+ * @param period EMA 기간
+ */
+export function calculateEMA(prices: number[], period: number): number[] {
+  if (prices.length === 0) return [];
+  if (prices.length < period) {
+    // 데이터 부족 시 SMA로 대체
+    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+    return prices.map(() => avg);
+  }
+
+  const ema: number[] = [];
+  const multiplier = 2 / (period + 1);
+
+  // 첫 EMA는 SMA로 시작
+  const firstSMA = prices.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+  for (let i = 0; i < prices.length; i++) {
+    if (i < period - 1) {
+      // period 이전에는 SMA 사용
+      const slice = prices.slice(0, i + 1);
+      ema.push(slice.reduce((a, b) => a + b, 0) / slice.length);
+    } else if (i === period - 1) {
+      ema.push(firstSMA);
+    } else {
+      // EMA = (현재가 - 이전 EMA) × multiplier + 이전 EMA
+      const prevEMA = ema[i - 1];
+      const currentEMA = (prices[i] - prevEMA) * multiplier + prevEMA;
+      ema.push(currentEMA);
+    }
+  }
+
+  return ema;
+}
+
+/**
+ * MACD (Moving Average Convergence Divergence) 계산
+ * MACD Line = 12일 EMA - 26일 EMA
+ * Signal Line = MACD Line의 9일 EMA
+ * Histogram = MACD Line - Signal Line
+ *
+ * @param prices 종가 배열 (과거 → 최신 순서)
+ * @param fastPeriod 단기 EMA 기간 (기본 12일)
+ * @param slowPeriod 장기 EMA 기간 (기본 26일)
+ * @param signalPeriod 시그널 EMA 기간 (기본 9일)
+ */
+export function calculateMACD(
+  prices: number[],
+  fastPeriod: number = 12,
+  slowPeriod: number = 26,
+  signalPeriod: number = 9
+): {
+  macd: number; // MACD Line (현재값)
+  signal: number; // Signal Line (현재값)
+  histogram: number; // Histogram (현재값)
+  macdLine: number[]; // MACD Line 전체 배열
+  signalLine: number[]; // Signal Line 전체 배열
+  histogramLine: number[]; // Histogram 전체 배열
+  trend: 'bullish' | 'bearish' | 'neutral'; // 추세 판단
+  crossover: 'golden' | 'death' | 'none'; // 크로스오버 신호
+} {
+  const defaultResult = {
+    macd: 0,
+    signal: 0,
+    histogram: 0,
+    macdLine: [],
+    signalLine: [],
+    histogramLine: [],
+    trend: 'neutral' as const,
+    crossover: 'none' as const,
+  };
+
+  if (prices.length < slowPeriod + signalPeriod) {
+    return defaultResult;
+  }
+
+  // EMA 계산
+  const fastEMA = calculateEMA(prices, fastPeriod);
+  const slowEMA = calculateEMA(prices, slowPeriod);
+
+  // MACD Line = Fast EMA - Slow EMA
+  const macdLine: number[] = [];
+  for (let i = 0; i < prices.length; i++) {
+    macdLine.push(fastEMA[i] - slowEMA[i]);
+  }
+
+  // Signal Line = MACD Line의 EMA
+  const signalLine = calculateEMA(macdLine, signalPeriod);
+
+  // Histogram = MACD Line - Signal Line
+  const histogramLine: number[] = [];
+  for (let i = 0; i < macdLine.length; i++) {
+    histogramLine.push(macdLine[i] - signalLine[i]);
+  }
+
+  // 현재값 (배열의 마지막 요소)
+  const currentMACD = macdLine[macdLine.length - 1];
+  const currentSignal = signalLine[signalLine.length - 1];
+  const currentHistogram = histogramLine[histogramLine.length - 1];
+
+  // 추세 판단
+  let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+  if (currentMACD > 0 && currentHistogram > 0) {
+    trend = 'bullish';
+  } else if (currentMACD < 0 && currentHistogram < 0) {
+    trend = 'bearish';
+  }
+
+  // 크로스오버 감지 (최근 2일 비교)
+  let crossover: 'golden' | 'death' | 'none' = 'none';
+  if (macdLine.length >= 2 && signalLine.length >= 2) {
+    const prevMACD = macdLine[macdLine.length - 2];
+    const prevSignal = signalLine[signalLine.length - 2];
+
+    // 골든 크로스: MACD가 시그널을 아래에서 위로 돌파
+    if (prevMACD <= prevSignal && currentMACD > currentSignal) {
+      crossover = 'golden';
+    }
+    // 데드 크로스: MACD가 시그널을 위에서 아래로 돌파
+    else if (prevMACD >= prevSignal && currentMACD < currentSignal) {
+      crossover = 'death';
+    }
+  }
+
+  return {
+    macd: Math.round(currentMACD * 100) / 100,
+    signal: Math.round(currentSignal * 100) / 100,
+    histogram: Math.round(currentHistogram * 100) / 100,
+    macdLine: macdLine.map(v => Math.round(v * 100) / 100),
+    signalLine: signalLine.map(v => Math.round(v * 100) / 100),
+    histogramLine: histogramLine.map(v => Math.round(v * 100) / 100),
+    trend,
+    crossover,
+  };
+}
+
+/**
+ * 스토캐스틱 (Stochastic Oscillator) 계산
+ * %K = (현재가 - N일 최저가) / (N일 최고가 - N일 최저가) × 100
+ * %D = %K의 M일 이동평균
+ *
+ * @param highs 고가 배열 (과거 → 최신 순서)
+ * @param lows 저가 배열 (과거 → 최신 순서)
+ * @param closes 종가 배열 (과거 → 최신 순서)
+ * @param kPeriod %K 기간 (기본 14일)
+ * @param dPeriod %D 기간 (기본 3일)
+ * @param smoothK %K 스무딩 기간 (기본 3, Slow Stochastic)
+ */
+export function calculateStochastic(
+  highs: number[],
+  lows: number[],
+  closes: number[],
+  kPeriod: number = 14,
+  dPeriod: number = 3,
+  smoothK: number = 3
+): {
+  k: number; // %K (현재값)
+  d: number; // %D (현재값)
+  kLine: number[]; // %K 전체 배열
+  dLine: number[]; // %D 전체 배열
+  zone: 'overbought' | 'oversold' | 'neutral'; // 과매수/과매도 영역
+  signal: 'buy' | 'sell' | 'none'; // 매매 신호
+} {
+  const defaultResult = {
+    k: 50,
+    d: 50,
+    kLine: [],
+    dLine: [],
+    zone: 'neutral' as const,
+    signal: 'none' as const,
+  };
+
+  if (
+    highs.length < kPeriod ||
+    lows.length < kPeriod ||
+    closes.length < kPeriod
+  ) {
+    return defaultResult;
+  }
+
+  // Fast %K 계산
+  const fastK: number[] = [];
+  for (let i = kPeriod - 1; i < closes.length; i++) {
+    const highSlice = highs.slice(i - kPeriod + 1, i + 1);
+    const lowSlice = lows.slice(i - kPeriod + 1, i + 1);
+    const highestHigh = Math.max(...highSlice);
+    const lowestLow = Math.min(...lowSlice);
+
+    if (highestHigh === lowestLow) {
+      fastK.push(50); // 변동 없으면 중립값
+    } else {
+      const k = ((closes[i] - lowestLow) / (highestHigh - lowestLow)) * 100;
+      fastK.push(k);
+    }
+  }
+
+  // Slow %K (Fast %K의 smoothK일 SMA) = 일반적인 %K
+  const kLine: number[] = [];
+  for (let i = 0; i < fastK.length; i++) {
+    if (i < smoothK - 1) {
+      kLine.push(fastK[i]);
+    } else {
+      const slice = fastK.slice(i - smoothK + 1, i + 1);
+      const avg = slice.reduce((a, b) => a + b, 0) / smoothK;
+      kLine.push(avg);
+    }
+  }
+
+  // %D (Slow %K의 dPeriod일 SMA)
+  const dLine: number[] = [];
+  for (let i = 0; i < kLine.length; i++) {
+    if (i < dPeriod - 1) {
+      dLine.push(kLine[i]);
+    } else {
+      const slice = kLine.slice(i - dPeriod + 1, i + 1);
+      const avg = slice.reduce((a, b) => a + b, 0) / dPeriod;
+      dLine.push(avg);
+    }
+  }
+
+  // 현재값
+  const currentK = kLine[kLine.length - 1];
+  const currentD = dLine[dLine.length - 1];
+
+  // 과매수/과매도 영역 판단
+  let zone: 'overbought' | 'oversold' | 'neutral' = 'neutral';
+  if (currentK >= 80) {
+    zone = 'overbought';
+  } else if (currentK <= 20) {
+    zone = 'oversold';
+  }
+
+  // 매매 신호 (크로스오버 기반)
+  let signal: 'buy' | 'sell' | 'none' = 'none';
+  if (kLine.length >= 2 && dLine.length >= 2) {
+    const prevK = kLine[kLine.length - 2];
+    const prevD = dLine[dLine.length - 2];
+
+    // 과매도 영역에서 %K가 %D를 상향 돌파 = 매수 신호
+    if (prevK <= prevD && currentK > currentD && currentK <= 30) {
+      signal = 'buy';
+    }
+    // 과매수 영역에서 %K가 %D를 하향 돌파 = 매도 신호
+    else if (prevK >= prevD && currentK < currentD && currentK >= 70) {
+      signal = 'sell';
+    }
+  }
+
+  return {
+    k: Math.round(currentK * 100) / 100,
+    d: Math.round(currentD * 100) / 100,
+    kLine: kLine.map(v => Math.round(v * 100) / 100),
+    dLine: dLine.map(v => Math.round(v * 100) / 100),
+    zone,
+    signal,
+  };
+}
+
+/**
+ * 재무 지표 계산
+ */
+export interface FinancialMetrics {
+  per: number | null; // Price to Earnings Ratio (주가수익비율)
+  pbr: number | null; // Price to Book Ratio (주가순자산비율)
+  roe: number | null; // Return on Equity (자기자본이익률, %)
+  roa: number | null; // Return on Assets (총자산이익률, %)
+  eps: number | null; // Earnings Per Share (주당순이익)
+  bps: number | null; // Book Value Per Share (주당순자산)
+  dividendYield: number | null; // 배당수익률 (%)
+  debtRatio: number | null; // 부채비율 (%)
+  currentRatio: number | null; // 유동비율 (%)
+  operatingMargin: number | null; // 영업이익률 (%)
+  netProfitMargin: number | null; // 순이익률 (%)
+}
+
+/**
+ * 재무 지표 계산 함수
+ *
+ * @param currentPrice 현재 주가
+ * @param financialData 재무 데이터 객체
+ */
+export function calculateFinancialMetrics(
+  currentPrice: number,
+  financialData: {
+    netIncome?: number; // 순이익
+    totalEquity?: number; // 자기자본
+    totalAssets?: number; // 총자산
+    totalLiabilities?: number; // 총부채
+    currentAssets?: number; // 유동자산
+    currentLiabilities?: number; // 유동부채
+    sharesOutstanding?: number; // 발행주식수
+    dividendPerShare?: number; // 주당배당금
+    revenue?: number; // 매출액
+    operatingIncome?: number; // 영업이익
+  }
+): FinancialMetrics {
+  const {
+    netIncome,
+    totalEquity,
+    totalAssets,
+    totalLiabilities,
+    currentAssets,
+    currentLiabilities,
+    sharesOutstanding,
+    dividendPerShare,
+    revenue,
+    operatingIncome,
+  } = financialData;
+
+  // EPS (주당순이익) = 순이익 / 발행주식수
+  const eps =
+    netIncome !== undefined && sharesOutstanding && sharesOutstanding > 0
+      ? Math.round((netIncome / sharesOutstanding) * 100) / 100
+      : null;
+
+  // BPS (주당순자산) = 자기자본 / 발행주식수
+  const bps =
+    totalEquity !== undefined && sharesOutstanding && sharesOutstanding > 0
+      ? Math.round((totalEquity / sharesOutstanding) * 100) / 100
+      : null;
+
+  // PER (주가수익비율) = 현재주가 / EPS
+  const per =
+    eps !== null && eps > 0
+      ? Math.round((currentPrice / eps) * 100) / 100
+      : null;
+
+  // PBR (주가순자산비율) = 현재주가 / BPS
+  const pbr =
+    bps !== null && bps > 0
+      ? Math.round((currentPrice / bps) * 100) / 100
+      : null;
+
+  // ROE (자기자본이익률) = (순이익 / 자기자본) × 100
+  const roe =
+    netIncome !== undefined && totalEquity && totalEquity > 0
+      ? Math.round((netIncome / totalEquity) * 100 * 100) / 100
+      : null;
+
+  // ROA (총자산이익률) = (순이익 / 총자산) × 100
+  const roa =
+    netIncome !== undefined && totalAssets && totalAssets > 0
+      ? Math.round((netIncome / totalAssets) * 100 * 100) / 100
+      : null;
+
+  // 배당수익률 = (주당배당금 / 현재주가) × 100
+  const dividendYield =
+    dividendPerShare !== undefined && currentPrice > 0
+      ? Math.round((dividendPerShare / currentPrice) * 100 * 100) / 100
+      : null;
+
+  // 부채비율 = (총부채 / 자기자본) × 100
+  const debtRatio =
+    totalLiabilities !== undefined && totalEquity && totalEquity > 0
+      ? Math.round((totalLiabilities / totalEquity) * 100 * 100) / 100
+      : null;
+
+  // 유동비율 = (유동자산 / 유동부채) × 100
+  const currentRatio =
+    currentAssets !== undefined &&
+    currentLiabilities &&
+    currentLiabilities > 0
+      ? Math.round((currentAssets / currentLiabilities) * 100 * 100) / 100
+      : null;
+
+  // 영업이익률 = (영업이익 / 매출액) × 100
+  const operatingMargin =
+    operatingIncome !== undefined && revenue && revenue > 0
+      ? Math.round((operatingIncome / revenue) * 100 * 100) / 100
+      : null;
+
+  // 순이익률 = (순이익 / 매출액) × 100
+  const netProfitMargin =
+    netIncome !== undefined && revenue && revenue > 0
+      ? Math.round((netIncome / revenue) * 100 * 100) / 100
+      : null;
+
+  return {
+    per,
+    pbr,
+    roe,
+    roa,
+    eps,
+    bps,
+    dividendYield,
+    debtRatio,
+    currentRatio,
+    operatingMargin,
+    netProfitMargin,
+  };
+}
+
+/**
+ * 재무 건전성 등급 판단
+ */
+export function evaluateFinancialHealth(
+  metrics: FinancialMetrics
+): {
+  grade: 'A' | 'B' | 'C' | 'D' | 'F'; // 종합 등급
+  strengths: string[]; // 강점
+  weaknesses: string[]; // 약점
+  summary: string; // 요약
+} {
+  const strengths: string[] = [];
+  const weaknesses: string[] = [];
+  let score = 0;
+  let totalFactors = 0;
+
+  // PER 평가 (낮을수록 좋음, 단 음수/0은 제외)
+  if (metrics.per !== null && metrics.per > 0) {
+    totalFactors++;
+    if (metrics.per < 10) {
+      score += 2;
+      strengths.push('저PER (저평가 가능성)');
+    } else if (metrics.per < 20) {
+      score += 1;
+    } else if (metrics.per > 30) {
+      weaknesses.push('고PER (고평가 가능성)');
+    }
+  }
+
+  // ROE 평가 (높을수록 좋음)
+  if (metrics.roe !== null) {
+    totalFactors++;
+    if (metrics.roe > 15) {
+      score += 2;
+      strengths.push('높은 ROE (효율적 자본 활용)');
+    } else if (metrics.roe > 8) {
+      score += 1;
+    } else if (metrics.roe < 5) {
+      weaknesses.push('낮은 ROE (자본 효율성 낮음)');
+    }
+  }
+
+  // 부채비율 평가 (낮을수록 좋음)
+  if (metrics.debtRatio !== null) {
+    totalFactors++;
+    if (metrics.debtRatio < 100) {
+      score += 2;
+      strengths.push('낮은 부채비율 (재무 안정성)');
+    } else if (metrics.debtRatio < 200) {
+      score += 1;
+    } else if (metrics.debtRatio > 300) {
+      weaknesses.push('높은 부채비율 (재무 위험)');
+    }
+  }
+
+  // 유동비율 평가 (높을수록 좋음)
+  if (metrics.currentRatio !== null) {
+    totalFactors++;
+    if (metrics.currentRatio > 200) {
+      score += 2;
+      strengths.push('높은 유동비율 (단기 지불능력 우수)');
+    } else if (metrics.currentRatio > 100) {
+      score += 1;
+    } else {
+      weaknesses.push('낮은 유동비율 (단기 지불능력 우려)');
+    }
+  }
+
+  // 영업이익률 평가
+  if (metrics.operatingMargin !== null) {
+    totalFactors++;
+    if (metrics.operatingMargin > 15) {
+      score += 2;
+      strengths.push('높은 영업이익률 (수익성 우수)');
+    } else if (metrics.operatingMargin > 5) {
+      score += 1;
+    } else if (metrics.operatingMargin < 0) {
+      weaknesses.push('영업 손실');
+    }
+  }
+
+  // 배당수익률 평가
+  if (metrics.dividendYield !== null && metrics.dividendYield > 0) {
+    totalFactors++;
+    if (metrics.dividendYield > 4) {
+      score += 2;
+      strengths.push('높은 배당수익률');
+    } else if (metrics.dividendYield > 2) {
+      score += 1;
+    }
+  }
+
+  // 등급 산정
+  let grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  const avgScore = totalFactors > 0 ? score / totalFactors : 0;
+
+  if (avgScore >= 1.5) {
+    grade = 'A';
+  } else if (avgScore >= 1.0) {
+    grade = 'B';
+  } else if (avgScore >= 0.5) {
+    grade = 'C';
+  } else if (avgScore > 0) {
+    grade = 'D';
+  } else {
+    grade = 'F';
+  }
+
+  // 요약 생성
+  let summary: string;
+  if (grade === 'A') {
+    summary = '우수한 재무 건전성을 보유하고 있습니다.';
+  } else if (grade === 'B') {
+    summary = '양호한 재무 상태입니다.';
+  } else if (grade === 'C') {
+    summary = '보통 수준의 재무 상태입니다.';
+  } else if (grade === 'D') {
+    summary = '재무 개선이 필요합니다.';
+  } else {
+    summary = '재무 상태에 주의가 필요합니다.';
+  }
+
+  return {
+    grade,
+    strengths,
+    weaknesses,
+    summary,
   };
 }

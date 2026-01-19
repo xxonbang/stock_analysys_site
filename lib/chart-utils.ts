@@ -4,6 +4,7 @@
 
 import type { AnalyzeResult } from './types';
 import { calculateRSI, calculateMA } from './finance';
+import { calculateBollingerBands } from './indicators';
 
 export interface ChartDataPoint {
   date: string;
@@ -70,23 +71,17 @@ export function transformToChartData(
     
     // RSI 계산 (과거 데이터 기반, 각 시점별)
     const rsiVal = historicalSlice.length >= 15 ? calculateRSI(historicalSlice, 14) : undefined;
-    
-    // 볼린저 밴드 계산 (각 시점별 20일 기반)
-    let bbUpper = undefined;
-    let bbMiddle = undefined;
-    let bbLower = undefined;
+
+    // 볼린저 밴드 계산 (indicators.ts 함수 재사용으로 일관성 보장)
+    let bbUpper: number | undefined = undefined;
+    let bbMiddle: number | undefined = undefined;
+    let bbLower: number | undefined = undefined;
 
     if (historicalSlice.length >= 20) {
-      const recent20 = historicalSlice.slice(-20);
-      const ma20 = recent20.reduce((a, b) => a + b, 0) / 20;
-      const mean = ma20;
-      const variance =
-        recent20.reduce((sum, price) => sum + Math.pow(price - mean, 2), 0) / 20;
-      const stdDev = Math.sqrt(variance);
-      
-      bbMiddle = ma20;
-      bbUpper = bbMiddle + stdDev * 2;
-      bbLower = bbMiddle - stdDev * 2;
+      const bb = calculateBollingerBands(historicalSlice, 20, 2, d.close);
+      bbUpper = bb.upper;
+      bbMiddle = bb.middle;
+      bbLower = bb.lower;
     }
     
     return {
