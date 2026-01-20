@@ -13,6 +13,7 @@ import { INACTIVITY_TIMEOUT_MS, ONE_MINUTE_MS } from './constants';
 
 interface AuthContextType {
   isAuthenticated: boolean;
+  username: string | null;
   login: (username: string, password: string) => boolean;
   logout: () => void;
   updateLastActivity: () => void; // 활동 시간 업데이트
@@ -30,9 +31,11 @@ const HARDCODED_CREDENTIALS = {
 const INACTIVITY_TIMEOUT = INACTIVITY_TIMEOUT_MS; // 10분 (밀리초)
 const CHECK_INTERVAL = ONE_MINUTE_MS; // 1분마다 체크 (밀리초)
 const LAST_ACTIVITY_KEY = 'lastActivityTime';
+const USERNAME_KEY = 'authenticatedUsername';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
   const [showTimeoutDialog, setShowTimeoutDialog] = useState(false);
   const router = useRouter();
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -70,14 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 자동 로그아웃 처리
   const handleAutoLogout = useCallback(() => {
     setIsAuthenticated(false);
+    setUsername(null);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem(USERNAME_KEY);
       localStorage.removeItem(LAST_ACTIVITY_KEY);
     }
-    
+
     // 홈으로 이동
     router.push('/');
-    
+
     // 안내 팝업 표시
     setShowTimeoutDialog(true);
   }, [router]);
@@ -136,15 +141,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('isAuthenticated');
+      const storedUsername = localStorage.getItem(USERNAME_KEY);
       if (stored === 'true') {
         setIsAuthenticated(true);
+        setUsername(storedUsername);
         // 로그인 상태 복원 시 마지막 활동 시간 확인
         const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
         if (lastActivity) {
           const lastActivityTime = parseInt(lastActivity, 10);
           const now = Date.now();
           const timeSinceLastActivity = now - lastActivityTime;
-          
+
           // 10분 경과했으면 자동 로그아웃
           if (timeSinceLastActivity >= INACTIVITY_TIMEOUT) {
             handleAutoLogout();
@@ -160,11 +167,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = (username: string, password: string): boolean => {
-    if (username === HARDCODED_CREDENTIALS.username && password === HARDCODED_CREDENTIALS.password) {
+  const login = (inputUsername: string, password: string): boolean => {
+    if (inputUsername === HARDCODED_CREDENTIALS.username && password === HARDCODED_CREDENTIALS.password) {
       setIsAuthenticated(true);
+      setUsername(inputUsername);
       if (typeof window !== 'undefined') {
         localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem(USERNAME_KEY, inputUsername);
         // 로그인 시 현재 시간을 활동 시간으로 설정
         updateLastActivity();
       }
@@ -175,14 +184,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setIsAuthenticated(false);
+    setUsername(null);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem(USERNAME_KEY);
       localStorage.removeItem(LAST_ACTIVITY_KEY);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout, updateLastActivity }}>
+    <AuthContext.Provider value={{ isAuthenticated, username, login, logout, updateLastActivity }}>
       {children}
       {/* 자동 로그아웃 안내 팝업 */}
       {showTimeoutDialog && (

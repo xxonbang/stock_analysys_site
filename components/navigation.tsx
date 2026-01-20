@@ -7,7 +7,7 @@ import { LoginDialog } from '@/components/login-dialog';
 import { Button } from '@/components/ui/button';
 
 export function Navigation() {
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, username, logout } = useAuth();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [highlightLogin, setHighlightLogin] = useState(false);
   const loginButtonRef = useRef<HTMLButtonElement>(null);
@@ -80,6 +80,14 @@ export function Navigation() {
                   >
                     설정
                   </Link>
+                  {username === 'xxonbang' && (
+                    <Link
+                      href="/dual-source-validation"
+                      className="text-[10px] xs:text-xs sm:text-sm text-blue-600 hover:text-blue-800 transition-colors px-0.5 sm:px-0 font-medium"
+                    >
+                      듀얼소스 검증
+                    </Link>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
