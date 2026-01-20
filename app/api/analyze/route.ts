@@ -40,7 +40,7 @@ import { periodToKorean } from "@/lib/period-utils";
 const getSystemPrompt = (
   period: string,
   historicalPeriod: string,
-  analysisDate: string
+  analysisDate: string,
 ) => `당신은 월스트리트와 여의도에서 20년 이상 활동한 **수석 투자 전략가(Chief Investment Strategist)**입니다.
 당신의 분석 스타일은 **'데이터에 기반한 냉철한 통찰'**입니다. 단순히 '사라/팔아라'가 아니라, 거시 경제 상황과 기업의 펀더멘털, 그리고 기술적 위치를 종합하여 논리적인 시나리오를 제시합니다.
 
@@ -76,6 +76,7 @@ const getSystemPrompt = (
 4. **향후 전망**: 과거 이력(${historicalPeriod}) 분석 결과와 현재 기술적 지표를 종합하여 향후 전망 기간(${period}) 동안의 주가 전망을 제시하십시오.
 5. **결론**: 향후 전망 기간(${period})에 맞는 투자 의견을 명확하게 제시하십시오. 과거 이력 분석 결과를 근거로 제시하십시오.
 6. **어조**: 전문적이고 신뢰감 있게, 그러나 개인 투자자가 이해하기 쉽게 설명하십시오.
+7. **할루시네이션(Hallucination)**: AI가 실제 데이터나 사실이 아닌 정보를 절대 생성하지 않도록 주의하시오. 모든 분석과 주장은 제공된 데이터와 사실에 근거해야 합니다.
 
 응답은 마크다운 형식으로 작성하되, 다음 구조를 따르세요:
 ## 과거 이력 분석 (${historicalPeriod} 기간)
@@ -108,7 +109,7 @@ async function generateAIReportsBatch(
   historicalPeriod: string,
   analysisDate: string,
   genAI: GoogleGenerativeAI,
-  modelName: string = "gemini-2.5-flash"
+  modelName: string = "gemini-2.5-flash",
 ): Promise<Map<string, string>> {
   // Gemini 모델명: 파라미터로 받은 모델 사용 (기본값: gemini-2.5-flash)
   const model = genAI.getGenerativeModel({ model: modelName });
@@ -147,7 +148,7 @@ async function generateAIReportsBatch(
 
       console.log(
         `[Gemini Prompt] Indicators included for ${symbol}:`,
-        includedIndicators
+        includedIndicators,
       );
 
       return `
@@ -213,7 +214,7 @@ ${marketData.news
     (n, i) =>
       `${i + 1}. ${n.title}${
         n.date ? ` (${new Date(n.date).toLocaleDateString("ko-KR")})` : ""
-      }`
+      }`,
   )
   .join("\n")}
 **중요**: 위 뉴스 내용을 반드시 종목 분석에 반영하고, 뉴스가 주가에 미칠 수 있는 영향을 분석에 포함해주세요.
@@ -230,15 +231,15 @@ ${
         marketData.etfPremium.isPremium
           ? "프리미엄"
           : marketData.etfPremium.isDiscount
-          ? "할인"
-          : "정상"
+            ? "할인"
+            : "정상"
       }
 `
     : selectedIndicators?.etfPremium
-    ? `
+      ? `
 **ETF 괴리율**: ⚠️ 일반 종목은 ETF 괴리율 분석이 불가능합니다. ETF 괴리율은 ETF 전용 지표입니다.
 `
-    : ""
+      : ""
 }
 ${
   marketData.bollingerBands
@@ -249,7 +250,7 @@ ${
 - 하단: ${marketData.bollingerBands.lower.toLocaleString()}
 - 밴드폭: ${marketData.bollingerBands.bandwidth}%
 - 현재 위치: ${(marketData.bollingerBands.position * 100).toFixed(
-        1
+        1,
       )}% (0=하단, 100=상단)
 `
     : ""
@@ -264,8 +265,8 @@ ${
         marketData.volatility.volatilityRank === "low"
           ? "낮음"
           : marketData.volatility.volatilityRank === "medium"
-          ? "보통"
-          : "높음"
+            ? "보통"
+            : "높음"
       }
 `
     : ""
@@ -288,8 +289,8 @@ ${
         marketData.volumeIndicators.volumeTrend === "increasing"
           ? "증가"
           : marketData.volumeIndicators.volumeTrend === "decreasing"
-          ? "감소"
-          : "안정"
+            ? "감소"
+            : "안정"
       }
 `
     : ""
@@ -320,8 +321,8 @@ ${
         marketData.supportResistance.currentPosition === "near_resistance"
           ? "저항선 근처"
           : marketData.supportResistance.currentPosition === "near_support"
-          ? "지지선 근처"
-          : "중간"
+            ? "지지선 근처"
+            : "중간"
       }
 `
     : ""
@@ -373,7 +374,7 @@ ${formatExample}
 
   try {
     const result = await model.generateContent(
-      systemPrompt + "\n\n" + dataPrompt
+      systemPrompt + "\n\n" + dataPrompt,
     );
     const response = await result.response;
     const fullReport = response.text();
@@ -382,7 +383,8 @@ ${formatExample}
     const reportsMap = new Map<string, string>();
 
     // 심볼 정규화 함수 (이스케이프 처리)
-    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapeRegex = (str: string) =>
+      str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     // 각 종목별로 리포트 분리
     // 패턴: [종목: SYMBOL] 형식 우선, 그 외 다양한 형식 지원
@@ -394,27 +396,27 @@ ${formatExample}
         // [종목: SYMBOL] --- 형식 (가장 명확)
         new RegExp(
           `\\[종목:\\s*${escapedSymbol}\\s*\\]\\s*\\n---\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
-          "i"
+          "i",
         ),
         // [종목: SYMBOL] 형식 (--- 없음)
         new RegExp(
           `\\[종목:\\s*${escapedSymbol}\\s*\\]\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
-          "i"
+          "i",
         ),
         // ## SYMBOL 현재 시장 상황 형식
         new RegExp(
           `##\\s*${escapedSymbol}\\s+현재 시장 상황[\\s\\S]*?([\\s\\S]*?)(?=##\\s*[A-Z0-9]+(?:\\.KS|\\.KQ)?\\s+현재 시장 상황|\\[종목:|$)`,
-          "i"
+          "i",
         ),
         // 종목: SYMBOL 형식
         new RegExp(
           `종목:\\s*${escapedSymbol}\\s*\\n---\\s*\\n([\\s\\S]*?)(?=종목:|$)`,
-          "i"
+          "i",
         ),
         // ## SYMBOL 형식
         new RegExp(
           `##\\s*${escapedSymbol}[\\s\\S]*?\\n([\\s\\S]*?)(?=##\\s*[A-Z0-9]+(?:\\.KS|\\.KQ)?|\\[종목:|종목:|$)`,
-          "i"
+          "i",
         ),
       ];
 
@@ -426,32 +428,42 @@ ${formatExample}
           // 최소 길이 체크 (너무 짧으면 무시)
           if (report.length > 100) {
             // 추가 검증: 매칭된 리포트에 다른 종목의 심볼이 헤더로 포함되어 있으면 제외
-            const otherSymbols = stocksData.filter(s => s.symbol !== symbol).map(s => s.symbol);
-            const hasOtherSymbolHeader = otherSymbols.some(other =>
-              new RegExp(`##\\s*${escapeRegex(other)}\\s`, 'i').test(report.slice(0, 200))
+            const otherSymbols = stocksData
+              .filter((s) => s.symbol !== symbol)
+              .map((s) => s.symbol);
+            const hasOtherSymbolHeader = otherSymbols.some((other) =>
+              new RegExp(`##\\s*${escapeRegex(other)}\\s`, "i").test(
+                report.slice(0, 200),
+              ),
             );
 
             if (!hasOtherSymbolHeader) {
               reportsMap.set(symbol, report);
               found = true;
-              console.log(`[AI Report Parsing] Successfully matched report for ${symbol} (length: ${report.length})`);
+              console.log(
+                `[AI Report Parsing] Successfully matched report for ${symbol} (length: ${report.length})`,
+              );
               break;
             } else {
-              console.warn(`[AI Report Parsing] Matched content for ${symbol} contains other symbol header, trying next pattern`);
+              console.warn(
+                `[AI Report Parsing] Matched content for ${symbol} contains other symbol header, trying next pattern`,
+              );
             }
           }
         }
       }
 
       if (!found) {
-        console.warn(`[AI Report Parsing] Failed to find matching report for ${symbol}`);
+        console.warn(
+          `[AI Report Parsing] Failed to find matching report for ${symbol}`,
+        );
         // 패턴 매칭 실패 시, 전체 리포트를 첫 번째 종목에 할당
         if (reportsMap.size === 0) {
           reportsMap.set(symbol, fullReport);
         } else {
           reportsMap.set(
             symbol,
-            `## ${symbol} 분석 리포트\n\n⚠️ AI 리포트 파싱 중 오류가 발생했습니다. 전체 리포트를 확인해주세요.`
+            `## ${symbol} 분석 리포트\n\n⚠️ AI 리포트 파싱 중 오류가 발생했습니다. 전체 리포트를 확인해주세요.`,
           );
         }
       }
@@ -463,7 +475,7 @@ ${formatExample}
       for (let i = 1; i < stocksData.length; i++) {
         reportsMap.set(
           stocksData[i].symbol,
-          `## ${stocksData[i].symbol} 분석 리포트\n\n⚠️ AI 리포트 파싱 중 오류가 발생했습니다.`
+          `## ${stocksData[i].symbol} 분석 리포트\n\n⚠️ AI 리포트 파싱 중 오류가 발생했습니다.`,
         );
       }
     }
@@ -532,14 +544,14 @@ export async function POST(request: NextRequest) {
     if (!stocks || stocks.length === 0) {
       return NextResponse.json(
         { error: "주식 종목이 필요합니다." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (stocks.length > 5) {
       return NextResponse.json(
         { error: "최대 5개 종목까지 분석 가능합니다." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -551,14 +563,14 @@ export async function POST(request: NextRequest) {
           error:
             "GEMINI_API_KEY가 설정되지 않았습니다. 최소 1개의 API 키가 필요합니다.",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     console.log(
       `[Gemini] ${apiKeys.length}개의 API 키 사용 가능 (Primary + ${
         apiKeys.length - 1
-      }개 Fallback)`
+      }개 Fallback)`,
     );
 
     // 배치로 모든 종목 데이터 수집
@@ -582,63 +594,62 @@ export async function POST(request: NextRequest) {
 
     if (usePython) {
       console.log(
-        `Using Python script directly... (historical period: ${historicalAnalysisPeriod}, forecast period: ${analysisPeriod})`
+        `Using Python script directly... (historical period: ${historicalAnalysisPeriod}, forecast period: ${analysisPeriod})`,
       );
       console.log(`Original symbols: ${stocks.join(", ")}`);
       try {
-        const { fetchStocksDataBatchVercel } = await import(
-          "@/lib/finance-vercel"
-        );
+        const { fetchStocksDataBatchVercel } =
+          await import("@/lib/finance-vercel");
         // 과거 이력 분석 기간으로 데이터 수집
         stockDataMap = await fetchStocksDataBatchVercel(
           stocks,
-          historicalAnalysisPeriod
+          historicalAnalysisPeriod,
         );
         console.log(
           `Fetched data for symbols: ${Array.from(stockDataMap.keys()).join(
-            ", "
-          )}`
+            ", ",
+          )}`,
         );
 
         // Python 스크립트가 실패하면 fallback
         if (stockDataMap.size === 0) {
           console.warn(
-            "Python script returned no data, falling back to yahoo-finance2"
+            "Python script returned no data, falling back to yahoo-finance2",
           );
           try {
             stockDataMap = await fetchStocksData(stocks);
           } catch (fallbackError) {
             console.error(
               "Fallback to yahoo-finance2 also failed:",
-              fallbackError
+              fallbackError,
             );
             throw new Error(
               `모든 종목 데이터 수집에 실패했습니다: ${
                 fallbackError instanceof Error
                   ? fallbackError.message
                   : String(fallbackError)
-              }`
+              }`,
             );
           }
         }
       } catch (error) {
         console.error(
           "Python script failed, falling back to yahoo-finance2:",
-          error
+          error,
         );
         try {
           stockDataMap = await fetchStocksData(stocks);
         } catch (fallbackError) {
           console.error(
             "Fallback to yahoo-finance2 also failed:",
-            fallbackError
+            fallbackError,
           );
           throw new Error(
             `모든 종목 데이터 수집에 실패했습니다: ${
               fallbackError instanceof Error
                 ? fallbackError.message
                 : String(fallbackError)
-            }`
+            }`,
           );
         }
       }
@@ -659,7 +670,7 @@ export async function POST(request: NextRequest) {
     // 단계 1: 데이터 수집 완료
     const dataCollectionEnd = Date.now();
     const dataCollectionTiming = stepTimings.find(
-      (t) => t.step === "dataCollection"
+      (t) => t.step === "dataCollection",
     );
     if (dataCollectionTiming) {
       dataCollectionTiming.endTime = dataCollectionEnd;
@@ -696,7 +707,7 @@ export async function POST(request: NextRequest) {
       if (indicators.supplyDemand && isKoreaStock) {
         const koreaSymbol = symbol.replace(".KS", "");
         supplyDemand = await fetchKoreaSupplyDemand(koreaSymbol).catch(
-          () => undefined
+          () => undefined,
         );
       }
 
@@ -714,7 +725,7 @@ export async function POST(request: NextRequest) {
       // 날짜 기준 정렬 보장 (과거 → 최신)
       if (historicalData.length > 0) {
         historicalData = [...historicalData].sort(
-          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
         );
       }
 
@@ -735,7 +746,7 @@ export async function POST(request: NextRequest) {
 
             // ETF API 호출 (symbol과 일치하는 ETF만 반환하도록 수정됨)
             const etfInfo = await fetchKoreaETFInfoKRX(koreaSymbol).catch(
-              () => null
+              () => null,
             );
 
             // fetchKoreaETFInfoKRX는 symbol과 일치하는 ETF가 없으면 null을 반환
@@ -744,13 +755,13 @@ export async function POST(request: NextRequest) {
             if (etfInfo && etfInfo.nav && etfInfo.nav > 0) {
               etfPremium = calculateETFPremium(stockData.price, etfInfo.nav);
               console.log(
-                `[Analyze API] ETF premium calculated for ${symbol}: ${etfPremium.premium}%`
+                `[Analyze API] ETF premium calculated for ${symbol}: ${etfPremium.premium}%`,
               );
             } else {
               console.log(
                 `[Analyze API] ${symbol} is not an ETF or NAV not available (etfInfo: ${
                   etfInfo ? "exists but no NAV" : "null"
-                })`
+                })`,
               );
             }
           } catch (error) {
@@ -778,7 +789,7 @@ export async function POST(request: NextRequest) {
                   stockData.volume
                 }, volumes.length=${volumes.length}, last volume in array=${
                   volumes[volumes.length - 1]
-                }`
+                }`,
               );
               return calculateVolumeIndicators(volumes, 20, stockData.volume); // stockData.volume을 최신 거래량으로 전달
             })()
@@ -805,7 +816,7 @@ export async function POST(request: NextRequest) {
                   historicalDataSample: historicalData
                     .slice(0, 3)
                     .map((d) => ({ date: d.date, high: d.high, low: d.low })),
-                }
+                },
               );
               return result;
             })()
@@ -818,7 +829,8 @@ export async function POST(request: NextRequest) {
       const ma60 = calculateMA(closes, 60);
       const ma120 = calculateMA(closes, 120);
 
-      const disparity = ma20 !== null ? calculateDisparity(stockData.price, ma20) : null;
+      const disparity =
+        ma20 !== null ? calculateDisparity(stockData.price, ma20) : null;
 
       // 마켓 데이터 구성
       const marketData: AnalyzeResult["marketData"] = {
@@ -877,7 +889,7 @@ export async function POST(request: NextRequest) {
     // 단계 2: 기술적 지표 계산 완료
     const indicatorCalculationEnd = Date.now();
     const indicatorCalculationTiming = stepTimings.find(
-      (t) => t.step === "indicatorCalculation"
+      (t) => t.step === "indicatorCalculation",
     );
     if (indicatorCalculationTiming) {
       indicatorCalculationTiming.endTime = indicatorCalculationEnd;
@@ -895,7 +907,7 @@ export async function POST(request: NextRequest) {
     if (stocksDataForAI.length > 0) {
       try {
         console.log(
-          `Generating AI reports for ${stocksDataForAI.length} stocks in a single API call...`
+          `Generating AI reports for ${stocksDataForAI.length} stocks in a single API call...`,
         );
 
         // Fallback 지원으로 Gemini API 호출
@@ -909,12 +921,12 @@ export async function POST(request: NextRequest) {
               historicalPeriodKorean,
               analysisDateStr,
               genAI,
-              modelName || "gemini-2.5-flash"
+              modelName || "gemini-2.5-flash",
             );
           },
           {
             model: "gemini-2.5-flash",
-          }
+          },
         );
       } catch (error) {
         console.error("Failed to generate AI reports:", error);
@@ -925,7 +937,7 @@ export async function POST(request: NextRequest) {
         for (const { symbol } of stocksDataForAI) {
           aiReportsMap.set(
             symbol,
-            `## ${symbol} 분석 리포트\n\n⚠️ AI 리포트 생성 중 오류가 발생했습니다: ${errorMessage}\n\n데이터 수집은 성공적으로 완료되었습니다.`
+            `## ${symbol} 분석 리포트\n\n⚠️ AI 리포트 생성 중 오류가 발생했습니다: ${errorMessage}\n\n데이터 수집은 성공적으로 완료되었습니다.`,
           );
         }
       }
@@ -971,14 +983,14 @@ export async function POST(request: NextRequest) {
     if (results.length === 0) {
       return NextResponse.json(
         { error: "모든 종목 데이터 수집에 실패했습니다." },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
     // 단계 4: 리포트 생성 완료
     const reportGenerationEnd = Date.now();
     const reportGenerationTiming = stepTimings.find(
-      (t) => t.step === "reportGeneration"
+      (t) => t.step === "reportGeneration",
     );
     if (reportGenerationTiming) {
       reportGenerationTiming.endTime = reportGenerationEnd;
@@ -1026,7 +1038,7 @@ export async function POST(request: NextRequest) {
             ? error.message
             : "분석 중 오류가 발생했습니다.",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
