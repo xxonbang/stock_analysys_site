@@ -885,6 +885,14 @@ export default function ReportPage() {
                 <CardTitle className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-1">
                   📦 거래량 지표
                   <IndicatorInfoButton indicatorKey="volumeIndicators" />
+                  {/* 쌍끌이 표시 */}
+                  {marketData.supplyDemand &&
+                    marketData.supplyDemand.foreign > 0 &&
+                    marketData.supplyDemand.institutional > 0 && (
+                      <span className="ml-2 px-2 py-0.5 bg-gradient-to-r from-red-500 to-orange-500 text-white text-xs font-bold rounded-full animate-pulse">
+                        🔥 쌍끌이
+                      </span>
+                    )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-xs sm:text-sm">
@@ -945,6 +953,42 @@ export default function ReportPage() {
                     </span>
                   </div>
                 </div>
+                {/* 외국인/기관 순매수 정보 */}
+                {marketData.supplyDemand && (
+                  <div className="pt-3 border-t border-gray-200">
+                    <div className="text-sm font-medium text-gray-700 mb-2">
+                      수급 현황 (순매수)
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <span className="text-gray-600">외국인</span>
+                        <span
+                          className={`font-bold ${
+                            marketData.supplyDemand.foreign >= 0
+                              ? "text-red-600"
+                              : "text-blue-600"
+                          }`}
+                        >
+                          {marketData.supplyDemand.foreign >= 0 ? "+" : ""}
+                          {marketData.supplyDemand.foreign.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <span className="text-gray-600">기관</span>
+                        <span
+                          className={`font-bold ${
+                            marketData.supplyDemand.institutional >= 0
+                              ? "text-red-600"
+                              : "text-blue-600"
+                          }`}
+                        >
+                          {marketData.supplyDemand.institutional >= 0 ? "+" : ""}
+                          {marketData.supplyDemand.institutional.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* 범례 */}
                 <div className="mt-3 pt-2 border-t border-gray-200">
                   <div className="text-[10px] text-gray-500">
@@ -1347,6 +1391,7 @@ export default function ReportPage() {
                 <VolumeChart
                   data={chartData}
                   averageVolume={marketData.volumeIndicators?.averageVolume}
+                  supplyDemand={marketData.supplyDemand}
                 />
               </CardContent>
             </Card>
