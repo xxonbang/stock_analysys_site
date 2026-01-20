@@ -144,7 +144,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedUsername = localStorage.getItem(USERNAME_KEY);
       if (stored === 'true') {
         setIsAuthenticated(true);
-        setUsername(storedUsername);
+        // username이 없으면 기본 사용자로 설정 (기존 로그인 세션 호환)
+        const effectiveUsername = storedUsername || HARDCODED_CREDENTIALS.username;
+        setUsername(effectiveUsername);
+        // localStorage에 username이 없으면 저장
+        if (!storedUsername) {
+          localStorage.setItem(USERNAME_KEY, effectiveUsername);
+        }
         // 로그인 상태 복원 시 마지막 활동 시간 확인
         const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
         if (lastActivity) {

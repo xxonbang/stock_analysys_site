@@ -1362,24 +1362,67 @@ export default function ReportPage() {
         {/* 차트 섹션 */}
         {chartData && chartData.length > 0 && (
           <div className="space-y-4 sm:space-y-6 mb-4 sm:mb-6">
-            {/* 주가 차트 */}
-            <Card>
-              <CardHeader>
-                <CardTitle>주가 차트</CardTitle>
-                <CardDescription>
-                  {currentResult.name || currentResult.symbol}의 주가 추이 및
-                  이동평균선
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <PriceChart
-                  data={chartData}
-                  symbol={currentResult.symbol}
-                  showMovingAverages={!!marketData.movingAverages}
-                  showBollingerBands={!!marketData.bollingerBands}
-                />
-              </CardContent>
-            </Card>
+            {/* 주가 차트 (이동평균선) */}
+            {marketData.movingAverages && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>주가 차트 (이동평균선)</CardTitle>
+                  <CardDescription>
+                    {currentResult.name || currentResult.symbol}의 주가 추이 및
+                    5일/20일/60일 이동평균선
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PriceChart
+                    data={chartData}
+                    symbol={currentResult.symbol}
+                    showMovingAverages={true}
+                    showBollingerBands={false}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 주가 차트 (볼린저 밴드) */}
+            {marketData.bollingerBands && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>주가 차트 (볼린저 밴드)</CardTitle>
+                  <CardDescription>
+                    {currentResult.name || currentResult.symbol}의 주가 추이 및
+                    볼린저 밴드 (상단/중심/하단선)
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PriceChart
+                    data={chartData}
+                    symbol={currentResult.symbol}
+                    showMovingAverages={false}
+                    showBollingerBands={true}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 이동평균선과 볼린저밴드 모두 없는 경우 기본 주가 차트 */}
+            {!marketData.movingAverages && !marketData.bollingerBands && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>주가 차트</CardTitle>
+                  <CardDescription>
+                    {currentResult.name || currentResult.symbol}의 주가 추이
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <PriceChart
+                    data={chartData}
+                    symbol={currentResult.symbol}
+                    showMovingAverages={false}
+                    showBollingerBands={false}
+                  />
+                </CardContent>
+              </Card>
+            )}
 
             {/* 거래량 차트 */}
             <Card>
