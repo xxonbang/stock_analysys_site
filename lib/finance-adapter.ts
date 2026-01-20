@@ -1,9 +1,10 @@
 /**
  * 데이터 소스 어댑터
- * 
+ *
  * 여러 데이터 소스를 통합 관리하고, 필요에 따라 전환할 수 있도록 함
+ * - Dual Source (추천) - 교차 검증으로 신뢰성 향상
  * - Yahoo Finance (기존)
- * - Finnhub (추천)
+ * - Finnhub (대체)
  * - Fallback 메커니즘
  */
 
@@ -13,6 +14,9 @@ import {
   fetchExchangeRate as fetchYahooExchangeRate,
   fetchVIX as fetchYahooVIX,
   fetchNews as fetchYahooNews,
+  calculateRSI,
+  calculateMA,
+  calculateDisparity,
 } from './finance';
 
 import {
@@ -27,10 +31,20 @@ import {
   fetchStocksDataBatchVercel,
 } from './finance-vercel';
 
-export type DataSource = 'finnhub' | 'yahoo' | 'vercel' | 'auto';
+import {
+  collectStockDataDualSource,
+  detectMarketType,
+  type ValidatedStockData,
+  type ComprehensiveStockData,
+} from './dual-source';
+
+export type DataSource = 'dual-source' | 'finnhub' | 'yahoo' | 'vercel' | 'auto';
 
 const DEFAULT_DATA_SOURCE: DataSource =
   (process.env.DATA_SOURCE as DataSource) || 'auto';
+
+// 듀얼 소스 활성화 여부
+const USE_DUAL_SOURCE = process.env.USE_DUAL_SOURCE === 'true';
 
 /**
  * 자동으로 최적의 데이터 소스 선택
@@ -41,7 +55,12 @@ function selectDataSource(symbols: string[]): DataSource {
     return DEFAULT_DATA_SOURCE;
   }
 
-  // Python 스크립트 사용 설정이 있으면 최우선 (로컬 테스트용)
+  // 듀얼 소스 활성화 설정이 있으면 최우선
+  if (USE_DUAL_SOURCE) {
+    return 'dual-source';
+  }
+
+  // Python 스크립트 사용 설정이 있으면 (로컬 테스트용)
   if (process.env.USE_PYTHON_SCRIPT === 'true') {
     return 'vercel';
   }
@@ -61,6 +80,115 @@ function selectDataSource(symbols: string[]): DataSource {
 }
 
 /**
+ * 듀얼 소스에서 historicalData 수집을 위한 Yahoo Finance 호출
+ */
+async function fetchHistoricalDataYahoo(
+  symbol: string
+): Promise<Array<{ date: string; close: number; volume: number; high?: number; low?: number; open?: number }>> {
+  try {
+    // Yahoo Finance에서 히스토리컬 데이터 수집
+    const yahooData = await fetchYahooBatch([symbol]);
+    const stockData = yahooData.get(symbol);
+    return stockData?.historicalData || [];
+  } catch (error) {
+    console.warn(`[DualSource] Historical data fetch failed for ${symbol}:`, error);
+    return [];
+  }
+}
+
+/**
+ * ComprehensiveStockData를 StockData로 변환
+ */
+function convertToStockData(
+  validated: ValidatedStockData,
+  historicalData: Array<{ date: string; close: number; volume: number; high?: number; low?: number; open?: number }>
+): StockData {
+  const { data, confidence } = validated;
+  const closes = historicalData.map((d) => d.close);
+
+  // RSI, MA, Disparity 계산
+  const rsi = closes.length >= 15 ? calculateRSI(closes, 14) : 50;
+  const ma5 = calculateMA(closes, 5) || data.priceData.currentPrice;
+  const ma20 = calculateMA(closes, 20) || data.priceData.currentPrice;
+  const ma60 = calculateMA(closes, 60) || data.priceData.currentPrice;
+  const ma120 = calculateMA(closes, 120) || data.priceData.currentPrice;
+  const disparity = calculateDisparity(data.priceData.currentPrice, ma20);
+
+  console.log(
+    `[DualSource] Converted ${data.basicInfo.symbol}: confidence=${(confidence * 100).toFixed(1)}%, ` +
+      `status=${validated.validation.status}, matched=${validated.validation.matchedFields.length}, ` +
+      `conflict=${validated.validation.conflictFields.length}`
+  );
+
+  return {
+    symbol: data.basicInfo.symbol,
+    price: data.priceData.currentPrice,
+    change: data.priceData.change,
+    changePercent: data.priceData.changePercent,
+    volume: data.priceData.volume,
+    marketCap: data.marketData.marketCap || undefined,
+    rsi,
+    movingAverages: {
+      ma5,
+      ma20,
+      ma60,
+      ma120,
+    },
+    disparity,
+    historicalData,
+    // 추가 메타데이터 (확장용)
+    _dualSource: {
+      confidence,
+      status: validated.validation.status,
+      sources: validated.sources,
+      matchedFields: validated.validation.matchedFields.length,
+      conflictFields: validated.validation.conflictFields.length,
+    },
+  } as StockData & { _dualSource: unknown };
+}
+
+/**
+ * 듀얼 소스 방식으로 주식 데이터 배치 수집
+ */
+async function fetchStocksDataDualSource(
+  symbols: string[]
+): Promise<Map<string, StockData>> {
+  const results = new Map<string, StockData>();
+
+  console.log(`[DualSource] Starting batch collection for ${symbols.length} symbols`);
+
+  for (let i = 0; i < symbols.length; i++) {
+    const symbol = symbols[i];
+
+    // Rate limit 방지 딜레이 (첫 번째 이후)
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
+    try {
+      // 1. 듀얼 소스로 현재가/밸류에이션 데이터 수집
+      const validated = await collectStockDataDualSource(symbol, {
+        timeout: 60000,
+        logResults: false,
+      });
+
+      // 2. 히스토리컬 데이터 수집 (Yahoo Finance)
+      const historicalData = await fetchHistoricalDataYahoo(symbol);
+
+      // 3. StockData 형식으로 변환
+      const stockData = convertToStockData(validated, historicalData);
+      results.set(symbol, stockData);
+    } catch (error) {
+      console.error(`[DualSource] Failed to collect ${symbol}:`, error);
+      // 개별 종목 실패 시 계속 진행
+    }
+  }
+
+  console.log(`[DualSource] Completed: ${results.size}/${symbols.length} symbols`);
+  return results;
+}
+
+/**
  * 통합 주식 데이터 수집 (데이터 소스 자동 선택)
  */
 export async function fetchStocksData(
@@ -68,10 +196,13 @@ export async function fetchStocksData(
 ): Promise<Map<string, StockData>> {
   const dataSource = selectDataSource(symbols);
 
-  console.log(`Using data source: ${dataSource} for symbols: ${symbols.join(', ')}`);
+  console.log(`[DataAdapter] Using data source: ${dataSource} for symbols: ${symbols.join(', ')}`);
 
   try {
-    if (dataSource === 'vercel') {
+    if (dataSource === 'dual-source') {
+      // 듀얼 소스 시스템 사용 (교차 검증)
+      return await fetchStocksDataDualSource(symbols);
+    } else if (dataSource === 'vercel') {
       // Vercel Serverless Functions 사용
       return await fetchStocksDataBatchVercel(symbols);
     } else if (dataSource === 'finnhub') {
@@ -83,8 +214,16 @@ export async function fetchStocksData(
     }
   } catch (error) {
     // Fallback 전략
-    if (dataSource === 'vercel') {
-      console.warn('Vercel Python failed, falling back to Finnhub/Yahoo:', error);
+    if (dataSource === 'dual-source') {
+      console.warn('[DataAdapter] Dual source failed, falling back to Yahoo:', error);
+      try {
+        return await fetchYahooBatch(symbols);
+      } catch (fallbackError) {
+        console.error('[DataAdapter] All data sources failed:', fallbackError);
+        throw fallbackError;
+      }
+    } else if (dataSource === 'vercel') {
+      console.warn('[DataAdapter] Vercel Python failed, falling back to Finnhub/Yahoo:', error);
       try {
         if (process.env.FINNHUB_API_KEY) {
           const normalizedSymbols = symbols.map(normalizeKoreaSymbol);
@@ -93,15 +232,15 @@ export async function fetchStocksData(
           return await fetchYahooBatch(symbols);
         }
       } catch (fallbackError) {
-        console.error('All data sources failed:', fallbackError);
+        console.error('[DataAdapter] All data sources failed:', fallbackError);
         throw fallbackError;
       }
     } else if (dataSource === 'finnhub') {
-      console.warn('Finnhub failed, falling back to Yahoo Finance:', error);
+      console.warn('[DataAdapter] Finnhub failed, falling back to Yahoo Finance:', error);
       try {
         return await fetchYahooBatch(symbols);
       } catch (fallbackError) {
-        console.error('Both data sources failed:', fallbackError);
+        console.error('[DataAdapter] Both data sources failed:', fallbackError);
         throw fallbackError;
       }
     }
