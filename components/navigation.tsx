@@ -2,12 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { LoginDialog } from '@/components/login-dialog';
 import { Button } from '@/components/ui/button';
 
 export function Navigation() {
   const { isAuthenticated, username, logout } = useAuth();
+  const pathname = usePathname();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [highlightLogin, setHighlightLogin] = useState(false);
   const loginButtonRef = useRef<HTMLButtonElement>(null);
@@ -80,10 +82,15 @@ export function Navigation() {
                   >
                     설정
                   </Link>
-                  {username === 'xxonbang' && (
+                  {/* 듀얼소스 검증 메뉴: 분석 결과 페이지와 듀얼소스 검증 페이지에서만 표시 */}
+                  {username === 'xxonbang' && (pathname === '/report' || pathname === '/dual-source-validation') && (
                     <Link
                       href="/dual-source-validation"
-                      className="text-[10px] xs:text-xs sm:text-sm text-blue-600 hover:text-blue-800 transition-colors px-0.5 sm:px-0 font-medium"
+                      className={`text-[10px] xs:text-xs sm:text-sm transition-colors px-0.5 sm:px-0 font-medium ${
+                        pathname === '/dual-source-validation'
+                          ? 'text-blue-800 underline underline-offset-4'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
                     >
                       듀얼소스 검증
                     </Link>
