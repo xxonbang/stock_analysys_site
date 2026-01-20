@@ -381,34 +381,39 @@ ${formatExample}
     // 응답을 종목별로 파싱
     const reportsMap = new Map<string, string>();
 
+    // 심볼 정규화 함수 (이스케이프 처리)
+    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     // 각 종목별로 리포트 분리
     // 패턴: [종목: SYMBOL] 형식 우선, 그 외 다양한 형식 지원
     for (const { symbol } of stocksData) {
+      const escapedSymbol = escapeRegex(symbol);
+
       // 여러 패턴 시도 (우선순위 순)
       const patterns = [
         // [종목: SYMBOL] --- 형식 (가장 명확)
         new RegExp(
-          `\\[종목:\\s*${symbol}\\s*\\]\\s*\\n---\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
+          `\\[종목:\\s*${escapedSymbol}\\s*\\]\\s*\\n---\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
           "i"
         ),
         // [종목: SYMBOL] 형식 (--- 없음)
         new RegExp(
-          `\\[종목:\\s*${symbol}\\s*\\]\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
+          `\\[종목:\\s*${escapedSymbol}\\s*\\]\\s*\\n([\\s\\S]*?)(?=\\[종목:|$)`,
           "i"
         ),
         // ## SYMBOL 현재 시장 상황 형식
         new RegExp(
-          `##\\s*${symbol}\\s+현재 시장 상황[\\s\\S]*?([\\s\\S]*?)(?=##\\s*[A-Z0-9]+\\s+현재 시장 상황|\\[종목:|$)`,
+          `##\\s*${escapedSymbol}\\s+현재 시장 상황[\\s\\S]*?([\\s\\S]*?)(?=##\\s*[A-Z0-9]+(?:\\.KS|\\.KQ)?\\s+현재 시장 상황|\\[종목:|$)`,
           "i"
         ),
         // 종목: SYMBOL 형식
         new RegExp(
-          `종목:\\s*${symbol}\\s*\\n---\\s*\\n([\\s\\S]*?)(?=종목:|$)`,
+          `종목:\\s*${escapedSymbol}\\s*\\n---\\s*\\n([\\s\\S]*?)(?=종목:|$)`,
           "i"
         ),
         // ## SYMBOL 형식
         new RegExp(
-          `##\\s*${symbol}[\\s\\S]*?\\n([\\s\\S]*?)(?=##\\s*[A-Z0-9]+|\\[종목:|종목:|$)`,
+          `##\\s*${escapedSymbol}[\\s\\S]*?\\n([\\s\\S]*?)(?=##\\s*[A-Z0-9]+(?:\\.KS|\\.KQ)?|\\[종목:|종목:|$)`,
           "i"
         ),
       ];
@@ -420,14 +425,26 @@ ${formatExample}
           const report = match[1].trim();
           // 최소 길이 체크 (너무 짧으면 무시)
           if (report.length > 100) {
-            reportsMap.set(symbol, report);
-            found = true;
-            break;
+            // 추가 검증: 매칭된 리포트에 다른 종목의 심볼이 헤더로 포함되어 있으면 제외
+            const otherSymbols = stocksData.filter(s => s.symbol !== symbol).map(s => s.symbol);
+            const hasOtherSymbolHeader = otherSymbols.some(other =>
+              new RegExp(`##\\s*${escapeRegex(other)}\\s`, 'i').test(report.slice(0, 200))
+            );
+
+            if (!hasOtherSymbolHeader) {
+              reportsMap.set(symbol, report);
+              found = true;
+              console.log(`[AI Report Parsing] Successfully matched report for ${symbol} (length: ${report.length})`);
+              break;
+            } else {
+              console.warn(`[AI Report Parsing] Matched content for ${symbol} contains other symbol header, trying next pattern`);
+            }
           }
         }
       }
 
       if (!found) {
+        console.warn(`[AI Report Parsing] Failed to find matching report for ${symbol}`);
         // 패턴 매칭 실패 시, 전체 리포트를 첫 번째 종목에 할당
         if (reportsMap.size === 0) {
           reportsMap.set(symbol, fullReport);

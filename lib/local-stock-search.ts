@@ -76,12 +76,12 @@ async function loadSymbols(): Promise<SymbolsJSON> {
           { name: 'name', weight: 0.8 }, // 종목명 우선
           { name: 'code', weight: 0.2 },  // 종목코드 보조
         ],
-        threshold: 0.4, // 유사도 임계값 (낮을수록 정확한 매칭, 0.3~0.4 권장)
+        threshold: 0.2, // 유사도 임계값 (낮을수록 정확한 매칭, 0.2로 하향하여 정확도 향상)
         includeScore: true,
-        minMatchCharLength: 1,
+        minMatchCharLength: 2, // 최소 2자 이상 매칭 (1자 매칭 방지)
         ignoreLocation: true, // 문자열 위치 무시 (어디에 있든 매칭)
-        ignoreFieldNorm: true, // 필드 정규화 무시 (짧은 검색어도 매칭)
-        findAllMatches: true, // 모든 매칭 찾기
+        ignoreFieldNorm: false, // 필드 정규화 활성화 (정확한 매칭 우선)
+        findAllMatches: false, // 첫 번째 매칭만 찾기 (성능 향상)
       };
 
       fuseKorea = new Fuse(data.korea.stocks, fuseOptions);

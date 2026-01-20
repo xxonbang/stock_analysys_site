@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(npm run build)",
+      "Bash(grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: 기술적 지표 계산 로직 개선 및 신규 지표 추가\n\n- Python RSI 계산을 Wilder''s Smoothing 방식으로 수정 \\(TypeScript와 일관성 확보\\)\n- Python historical 데이터에 high/low/open 필드 추가\n- chart-utils.ts 볼린저밴드 계산을 indicators.ts 함수 재사용으로 변경\n- 변동성 계산에 로그 수익률 옵션 추가 \\(기본값 true\\)\n- MACD 지표 구현 \\(12/26/9 기본값, 골든/데드 크로스 감지\\)\n- 스토캐스틱 지표 구현 \\(Slow Stochastic, 과매수/과매도 판단\\)\n- 재무 지표 11종 구현 \\(PER, PBR, ROE, ROA, EPS, BPS 등\\)\n- 재무 건전성 평가 함수 추가 \\(A~F 등급\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(open http://localhost:3001)",
+      "Bash(jq:*)",
+      "WebSearch",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(pkill:*)",
+      "Bash(nslookup:*)",
+      "Bash(sort:*)",
+      "Bash(iconv:*)"
+    ]
+  }
+}

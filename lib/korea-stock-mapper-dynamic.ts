@@ -1,11 +1,13 @@
 /**
  * 동적 한국 주식 이름 → 티커 변환 유틸리티
- * 
+ *
  * 하드코딩된 매핑 대신 FinanceDataReader StockListing을 활용하여
  * 동적으로 티커를 검색합니다.
- * 
+ *
  * ⚠️ 서버 사이드 전용 모듈입니다.
  */
+
+import { CACHE_TTL_MS, SIMILARITY_THRESHOLD, containsKorean, isKoreaTicker } from './constants';
 
 // 서버 사이드 전용 모듈
 // 클라이언트에서 import 시도 시 에러 발생
@@ -16,7 +18,7 @@ if (typeof window !== 'undefined') {
 // Node.js 전용 모듈은 동적 import로 처리 (클라이언트 번들에서 제외)
 
 // 캐시 파일 경로 (서버 사이드에서만 사용)
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24시간
+const CACHE_TTL = CACHE_TTL_MS; // 24시간
 
 async function getCachePaths() {
   const { join } = await import('path');
@@ -34,7 +36,14 @@ interface StockListingItem {
 interface CachedStockListing {
   data: StockListingItem[];
   timestamp: number;
+  version?: string; // 캐시 버전 (데이터 형식 변경 시 무효화용)
 }
+
+// 캐시 버전 (데이터 형식이 변경되면 증가)
+const CACHE_VERSION = '2.0';
+
+// 최소 유효 종목 수 (캐시 손상 감지용)
+const MIN_VALID_STOCK_COUNT = 1000;
 
 
 /**
@@ -106,20 +115,65 @@ async function fetchStockListingFromPython(): Promise<StockListingItem[]> {
 }
 
 /**
- * 캐시된 StockListing 데이터 읽기 (만료 여부 포함)
+ * 캐시 데이터 유효성 검증
+ */
+function validateCacheData(cached: CachedStockListing): { valid: boolean; reason?: string } {
+  // 1. 버전 확인
+  if (cached.version && cached.version !== CACHE_VERSION) {
+    return { valid: false, reason: `버전 불일치 (캐시: ${cached.version}, 현재: ${CACHE_VERSION})` };
+  }
+
+  // 2. 데이터 배열 확인
+  if (!cached.data || !Array.isArray(cached.data)) {
+    return { valid: false, reason: '데이터 배열이 없거나 잘못됨' };
+  }
+
+  // 3. 최소 종목 수 확인 (손상된 캐시 감지)
+  if (cached.data.length < MIN_VALID_STOCK_COUNT) {
+    return { valid: false, reason: `종목 수 부족 (${cached.data.length} < ${MIN_VALID_STOCK_COUNT})` };
+  }
+
+  // 4. 데이터 형식 샘플링 검증 (처음 10개 항목)
+  const sampleSize = Math.min(10, cached.data.length);
+  for (let i = 0; i < sampleSize; i++) {
+    const item = cached.data[i];
+    if (!item.Symbol || !item.Name || typeof item.Symbol !== 'string' || typeof item.Name !== 'string') {
+      return { valid: false, reason: `잘못된 데이터 형식 (인덱스 ${i})` };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * 캐시된 StockListing 데이터 읽기 (만료 여부 및 유효성 검증 포함)
  */
 async function readCachedStockListing(): Promise<{ data: StockListingItem[]; isExpired: boolean } | null> {
   try {
     const { existsSync } = await import('fs');
-    const { readFile } = await import('fs/promises');
+    const { readFile, unlink } = await import('fs/promises');
     const { STOCK_LISTING_CACHE_FILE } = await getCachePaths();
-    
+
     if (!existsSync(STOCK_LISTING_CACHE_FILE)) {
       return null;
     }
 
     const content = await readFile(STOCK_LISTING_CACHE_FILE, 'utf-8');
     const cached: CachedStockListing = JSON.parse(content);
+
+    // 캐시 유효성 검증
+    const validation = validateCacheData(cached);
+    if (!validation.valid) {
+      console.warn(`[Dynamic Mapping] 캐시 무효화: ${validation.reason}`);
+      // 손상된 캐시 삭제
+      try {
+        await unlink(STOCK_LISTING_CACHE_FILE);
+        console.log('[Dynamic Mapping] 손상된 캐시 파일 삭제됨');
+      } catch (unlinkError) {
+        console.warn('[Dynamic Mapping] 캐시 파일 삭제 실패:', unlinkError);
+      }
+      return null;
+    }
 
     // 캐시 만료 확인
     const now = Date.now();
@@ -143,7 +197,13 @@ async function saveCachedStockListing(data: StockListingItem[]): Promise<void> {
     const { existsSync } = await import('fs');
     const { mkdir, writeFile } = await import('fs/promises');
     const { CACHE_DIR, STOCK_LISTING_CACHE_FILE } = await getCachePaths();
-    
+
+    // 데이터 유효성 검증 (저장 전)
+    if (!data || data.length < MIN_VALID_STOCK_COUNT) {
+      console.warn(`[Dynamic Mapping] 캐시 저장 거부: 종목 수 부족 (${data?.length || 0})`);
+      return;
+    }
+
     // 캐시 디렉토리 생성
     if (!existsSync(CACHE_DIR)) {
       await mkdir(CACHE_DIR, { recursive: true });
@@ -152,34 +212,84 @@ async function saveCachedStockListing(data: StockListingItem[]): Promise<void> {
     const cached: CachedStockListing = {
       data,
       timestamp: Date.now(),
+      version: CACHE_VERSION,
     };
 
     await writeFile(STOCK_LISTING_CACHE_FILE, JSON.stringify(cached, null, 2), 'utf-8');
+    console.log(`[Dynamic Mapping] 캐시 저장 완료: ${data.length}개 종목, 버전 ${CACHE_VERSION}`);
   } catch (error) {
     console.warn('Failed to save cached stock listing:', error);
   }
 }
 
 /**
- * StockListing 데이터 가져오기 (캐시 우선, 만료된 캐시도 사용)
+ * symbols.json에서 종목 데이터 읽기 (정적 파일, 항상 사용 가능)
+ */
+async function readSymbolsJson(): Promise<StockListingItem[]> {
+  try {
+    const { existsSync } = await import('fs');
+    const { readFile } = await import('fs/promises');
+    const { join } = await import('path');
+
+    const symbolsPath = join(process.cwd(), 'public', 'data', 'symbols.json');
+
+    if (!existsSync(symbolsPath)) {
+      console.warn('[Dynamic Mapping] symbols.json not found');
+      return [];
+    }
+
+    const content = await readFile(symbolsPath, 'utf-8');
+    const data = JSON.parse(content);
+
+    if (!data.korea || !Array.isArray(data.korea.stocks)) {
+      console.warn('[Dynamic Mapping] Invalid symbols.json format');
+      return [];
+    }
+
+    // symbols.json 형식을 StockListingItem 형식으로 변환
+    const stocks: StockListingItem[] = data.korea.stocks.map((stock: { code: string; name: string; market: string }) => ({
+      Symbol: stock.code,
+      Name: stock.name,
+      Market: stock.market || 'KRX',
+    }));
+
+    console.log(`[Dynamic Mapping] Loaded ${stocks.length} stocks from symbols.json`);
+    return stocks;
+  } catch (error) {
+    console.warn('[Dynamic Mapping] Failed to read symbols.json:', error);
+    return [];
+  }
+}
+
+/**
+ * StockListing 데이터 가져오기 (캐시 우선, symbols.json 폴백)
  */
 export async function getStockListing(): Promise<StockListingItem[]> {
+  // 0. symbols.json 먼저 로드 (항상 사용 가능한 정적 데이터)
+  let symbolsJsonData: StockListingItem[] = [];
+  try {
+    symbolsJsonData = await readSymbolsJson();
+  } catch (e) {
+    console.warn('[Dynamic Mapping] symbols.json load failed:', e);
+  }
+
   // 1. 캐시 확인 (만료 여부와 관계없이)
   let cachedData: StockListingItem[] | null = null;
   let isExpired = false;
-  
+
   try {
     const cached = await readCachedStockListing();
     if (cached && cached.data.length > 0) {
       cachedData = cached.data;
       isExpired = cached.isExpired;
-      
-      // 만료되지 않았으면 즉시 반환
+
+      // 만료되지 않았으면 즉시 반환 (symbols.json과 병합)
       if (!isExpired) {
-        console.log(`[Dynamic Mapping] Using cached stock listing (${cachedData.length} stocks)`);
-        return cachedData;
+        const merged = mergeStockLists(cachedData, symbolsJsonData);
+        console.log(`[Dynamic Mapping] Using cached stock listing (${cachedData.length} cached + ${symbolsJsonData.length} from symbols.json = ${merged.length} total)`);
+        return merged;
       }
-      
+
       // 만료되었어도 일단 사용 (백그라운드 갱신)
       console.log(`[Dynamic Mapping] Cache expired, using stale cache (${cachedData.length} stocks) while refreshing in background...`);
     }
@@ -205,12 +315,29 @@ export async function getStockListing(): Promise<StockListingItem[]> {
       .catch((err) => {
         console.warn('[Dynamic Mapping] Background refresh failed:', err);
       });
-    
-    // 만료된 캐시라도 반환
-    return cachedData;
+
+    // 만료된 캐시 + symbols.json 병합하여 반환
+    const merged = mergeStockLists(cachedData, symbolsJsonData);
+    return merged;
   }
 
-  // 3. 캐시가 없으면 동기적으로 가져오기
+  // 3. 캐시가 없으면 symbols.json이라도 사용
+  if (symbolsJsonData.length > 0) {
+    console.log(`[Dynamic Mapping] No cache available, using symbols.json (${symbolsJsonData.length} stocks)`);
+
+    // 백그라운드에서 캐시 생성 시도
+    fetchStockListingFromPython()
+      .then((data) => {
+        if (data && data.length > 0) {
+          saveCachedStockListing(data).catch(() => {});
+        }
+      })
+      .catch(() => {});
+
+    return symbolsJsonData;
+  }
+
+  // 4. symbols.json도 없으면 Python에서 동기적으로 가져오기
   console.log('[Dynamic Mapping] Fetching stock listing from Python...');
   try {
     const data = await fetchStockListingFromPython();
@@ -222,7 +349,7 @@ export async function getStockListing(): Promise<StockListingItem[]> {
       }
       throw new Error('Stock listing returned empty data');
     }
-    
+
     // 캐시에 저장 (실패해도 계속 진행)
     try {
       await saveCachedStockListing(data);
@@ -237,11 +364,35 @@ export async function getStockListing(): Promise<StockListingItem[]> {
       console.warn('[Dynamic Mapping] Fetch failed, using stale cache:', error instanceof Error ? error.message : String(error));
       return cachedData;
     }
-    
+
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[Dynamic Mapping] Failed to fetch stock listing:', errorMessage);
     throw error;
   }
+}
+
+/**
+ * 두 종목 리스트 병합 (중복 제거, 첫 번째 리스트 우선)
+ */
+function mergeStockLists(primary: StockListingItem[], secondary: StockListingItem[]): StockListingItem[] {
+  const seen = new Set<string>();
+  const result: StockListingItem[] = [];
+
+  for (const stock of primary) {
+    if (stock.Symbol && !seen.has(stock.Symbol)) {
+      seen.add(stock.Symbol);
+      result.push(stock);
+    }
+  }
+
+  for (const stock of secondary) {
+    if (stock.Symbol && !seen.has(stock.Symbol)) {
+      seen.add(stock.Symbol);
+      result.push(stock);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -341,8 +492,8 @@ export async function searchTickerByName(name: string): Promise<string | null> {
           stockName,
         };
       })
-      .filter((item): item is { stock: StockListingItem; similarity: number; stockName: string } => 
-        item !== null && item.similarity > 0.6 // 60% 이상 유사도만 고려
+      .filter((item): item is { stock: StockListingItem; similarity: number; stockName: string } =>
+        item !== null && item.similarity > SIMILARITY_THRESHOLD // 60% 이상 유사도만 고려
       );
     
     if (partialMatches.length > 0) {
@@ -453,7 +604,7 @@ export async function normalizeStockSymbolDynamic(symbol: string): Promise<strin
     }
 
     // 4. 동적 검색 (한글 이름인 경우만)
-    const isKoreanName = /[가-힣]/.test(symbol);
+    const isKoreanName = containsKorean(symbol);
     if (isKoreanName) {
       try {
         const ticker = await searchTickerByName(symbol);
@@ -473,5 +624,91 @@ export async function normalizeStockSymbolDynamic(symbol: string): Promise<strin
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`[Dynamic Mapping] Normalization failed for ${symbol}, using original:`, errorMessage);
     return symbol;
+  }
+}
+
+/**
+ * 캐시 강제 무효화 (삭제)
+ */
+export async function invalidateCache(): Promise<{ success: boolean; message: string }> {
+  try {
+    const { existsSync } = await import('fs');
+    const { unlink } = await import('fs/promises');
+    const { STOCK_LISTING_CACHE_FILE } = await getCachePaths();
+
+    if (!existsSync(STOCK_LISTING_CACHE_FILE)) {
+      return { success: true, message: '캐시 파일이 존재하지 않습니다.' };
+    }
+
+    await unlink(STOCK_LISTING_CACHE_FILE);
+    console.log('[Dynamic Mapping] 캐시 강제 무효화 완료');
+    return { success: true, message: '캐시가 무효화되었습니다.' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[Dynamic Mapping] 캐시 무효화 실패:', errorMessage);
+    return { success: false, message: errorMessage };
+  }
+}
+
+/**
+ * 캐시 상태 조회
+ */
+export async function getCacheStatus(): Promise<{
+  exists: boolean;
+  stockCount: number;
+  timestamp: number | null;
+  isExpired: boolean;
+  version: string | null;
+  ageHours: number | null;
+}> {
+  try {
+    const cached = await readCachedStockListing();
+
+    if (!cached) {
+      return {
+        exists: false,
+        stockCount: 0,
+        timestamp: null,
+        isExpired: true,
+        version: null,
+        ageHours: null,
+      };
+    }
+
+    const { existsSync } = await import('fs');
+    const { readFile } = await import('fs/promises');
+    const { STOCK_LISTING_CACHE_FILE } = await getCachePaths();
+
+    let version: string | null = null;
+    let timestamp: number | null = null;
+
+    if (existsSync(STOCK_LISTING_CACHE_FILE)) {
+      const content = await readFile(STOCK_LISTING_CACHE_FILE, 'utf-8');
+      const raw = JSON.parse(content);
+      version = raw.version || null;
+      timestamp = raw.timestamp || null;
+    }
+
+    const ageMs = timestamp ? Date.now() - timestamp : null;
+    const ageHours = ageMs ? Math.round(ageMs / (1000 * 60 * 60) * 10) / 10 : null;
+
+    return {
+      exists: true,
+      stockCount: cached.data.length,
+      timestamp,
+      isExpired: cached.isExpired,
+      version,
+      ageHours,
+    };
+  } catch (error) {
+    console.error('[Dynamic Mapping] 캐시 상태 조회 실패:', error);
+    return {
+      exists: false,
+      stockCount: 0,
+      timestamp: null,
+      isExpired: true,
+      version: null,
+      ageHours: null,
+    };
   }
 }

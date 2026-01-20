@@ -1,10 +1,12 @@
 /**
  * 한국 주식 이름을 티커로 변환하는 유틸리티
- * 
+ *
  * 하이브리드 방식 지원:
  * 1. 정적 매핑 (하드코딩된 주요 종목)
  * 2. 동적 매핑 (Python 스크립트를 통한 전체 종목 검색)
  */
+
+import { isKoreaTicker, isKoreaMarketSymbol, containsKorean } from './constants';
 
 // 주요 한국 주식 이름-티커 매핑
 // 한글 이름과 영문 이름 모두 지원 (예: "네이버"와 "NAVER" 모두 "035420"으로 매핑)
@@ -43,7 +45,7 @@ export const KOREA_STOCK_MAP: Record<string, string> = {
  */
 export function convertKoreaStockNameToTicker(name: string): string | null {
   // 이미 티커 형식인 경우 (6자리 숫자 또는 .KS 포함)
-  if (/^\d{6}$/.test(name) || name.includes('.KS')) {
+  if (isKoreaTicker(name) || name.includes('.KS')) {
     return name.includes('.KS') ? name : `${name}.KS`;
   }
 
@@ -84,9 +86,9 @@ export async function normalizeStockSymbolHybrid(
   useDynamicMapping: boolean = true
 ): Promise<string> {
   // 1. 이미 티커 형식인 경우
-  if (/^\d{6}$/.test(symbol) || symbol.includes('.KS') || symbol.includes('.KQ')) {
+  if (isKoreaTicker(symbol) || isKoreaMarketSymbol(symbol)) {
     // 티커 코드만 있는 경우 (.KS 또는 .KQ 추가)
-    if (/^\d{6}$/.test(symbol)) {
+    if (isKoreaTicker(symbol)) {
       // 코스피/코스닥 구분 없이 .KS로 반환 (실제 데이터 조회 시 자동으로 올바른 시장으로 매핑됨)
       return `${symbol}.KS`;
     }
@@ -102,7 +104,7 @@ export async function normalizeStockSymbolHybrid(
   // 3. 동적 매핑은 서버 사이드(API 라우트)에서만 사용
   // 클라이언트 컴포넌트에서는 정적 매핑만 사용하여 번들 크기 및 호환성 문제 방지
   // 동적 매핑이 필요한 경우 API 라우트를 통해 처리
-  if (useDynamicMapping && /[가-힣]/.test(symbol) && typeof window === 'undefined') {
+  if (useDynamicMapping && containsKorean(symbol) && typeof window === 'undefined') {
     try {
       const { normalizeStockSymbolDynamic } = await import('./korea-stock-mapper-dynamic');
       const dynamicConverted = await normalizeStockSymbolDynamic(symbol);

@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r api/requirements.txt
           # symbols.json 생성에 필요한 추가 패키지
-          pip install requests beautifulsoup4
+          pip install requests beautifulsoup4 pykrx lxml
       
       # 4단계: 환경 변수 설정
       # GitHub Secrets에서 FINNHUB_API_KEY를 가져와서 환경 변수로 설정

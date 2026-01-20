@@ -26,12 +26,15 @@ export function StockAutocomplete({
   const [isLoading, setIsLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showNoResults, setShowNoResults] = useState(false); // 검색 결과 없음 표시
   const [highlightedText, setHighlightedText] = useState("");
   const isSelectingRef = useRef(false); // 선택 중인지 추적
   const lastSelectedSymbolRef = useRef<string | null>(null); // 마지막으로 선택된 심볼 추적
+  const noResultsTimerRef = useRef<NodeJS.Timeout | null>(null); // 자동 숨김 타이머
 
   const inputRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+  const noResultsRef = useRef<HTMLDivElement>(null); // 검색 결과 없음 창 ref
   const debouncedValue = useDebounce(value, 400); // 400ms debounce
 
   // 검색 실행
@@ -75,13 +78,41 @@ export function StockAutocomplete({
         setHighlightedText(debouncedValue.trim());
         setSelectedIndex(-1);
         setIsLoading(false);
+
+        // 검색 결과 없음 처리
+        if (results.length === 0) {
+          setShowNoResults(true);
+          // 기존 타이머 취소
+          if (noResultsTimerRef.current) {
+            clearTimeout(noResultsTimerRef.current);
+          }
+          // 2초 후 자동 숨김
+          noResultsTimerRef.current = setTimeout(() => {
+            setShowNoResults(false);
+          }, 2000);
+        } else {
+          setShowNoResults(false);
+          if (noResultsTimerRef.current) {
+            clearTimeout(noResultsTimerRef.current);
+          }
+        }
       })
       .catch((error) => {
         console.error("Error searching stocks:", error);
         setSuggestions([]);
         setIsLoading(false);
+        setShowNoResults(false);
       });
   }, [debouncedValue, disabled]);
+
+  // 컴포넌트 언마운트 시 타이머 정리
+  useEffect(() => {
+    return () => {
+      if (noResultsTimerRef.current) {
+        clearTimeout(noResultsTimerRef.current);
+      }
+    };
+  }, []);
 
   // 입력값 변경 시
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,22 +199,33 @@ export function StockAutocomplete({
     }
   };
 
-  // 외부 클릭 시 드롭다운 닫기
+  // 외부 클릭/터치 시 드롭다운 및 검색 결과 없음 창 닫기
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        inputRef.current &&
-        !inputRef.current.contains(event.target as Node) &&
-        suggestionsRef.current &&
-        !suggestionsRef.current.contains(event.target as Node)
-      ) {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+
+      // 입력창, 제안 목록, 검색 결과 없음 창 외부 클릭 시 닫기
+      const isOutsideInput = inputRef.current && !inputRef.current.contains(target);
+      const isOutsideSuggestions = !suggestionsRef.current || !suggestionsRef.current.contains(target);
+      const isOutsideNoResults = !noResultsRef.current || !noResultsRef.current.contains(target);
+
+      if (isOutsideInput && isOutsideSuggestions) {
         setShowSuggestions(false);
+      }
+
+      if (isOutsideInput && isOutsideNoResults) {
+        setShowNoResults(false);
+        if (noResultsTimerRef.current) {
+          clearTimeout(noResultsTimerRef.current);
+        }
       }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
     };
   }, []);
 
@@ -331,8 +373,17 @@ export function StockAutocomplete({
         </div>
       )}
 
-      {showSuggestions && !isLoading && suggestions.length === 0 && debouncedValue.trim().length >= 2 && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-4 text-sm text-gray-500 text-center">
+      {showNoResults && !isLoading && suggestions.length === 0 && debouncedValue.trim().length >= 2 && (
+        <div
+          ref={noResultsRef}
+          className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-4 text-sm text-gray-500 text-center animate-in fade-in duration-200"
+          onClick={() => {
+            setShowNoResults(false);
+            if (noResultsTimerRef.current) {
+              clearTimeout(noResultsTimerRef.current);
+            }
+          }}
+        >
           검색 결과가 없습니다
         </div>
       )}

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { INACTIVITY_TIMEOUT_MS, ONE_MINUTE_MS } from './constants';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -26,8 +27,8 @@ const HARDCODED_CREDENTIALS = {
 };
 
 // 상수
-const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10분 (밀리초)
-const CHECK_INTERVAL = 60 * 1000; // 1분마다 체크 (밀리초)
+const INACTIVITY_TIMEOUT = INACTIVITY_TIMEOUT_MS; // 10분 (밀리초)
+const CHECK_INTERVAL = ONE_MINUTE_MS; // 1분마다 체크 (밀리초)
 const LAST_ACTIVITY_KEY = 'lastActivityTime';
 
 export function AuthProvider({ children }: { children: ReactNode }) {

@@ -1,9 +1,6 @@
 "use client";
 
-// 클라이언트 전용 컴포넌트이므로 정적 생성 비활성화
-export const dynamic = 'force-dynamic';
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +27,7 @@ import type { StockSuggestion } from "@/lib/stock-search";
 
 import type { AnalysisPeriod } from "@/lib/types";
 
-export default function HomePage() {
+function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated } = useAuth();
@@ -143,11 +140,36 @@ export default function HomePage() {
     setIsLoading(true);
 
     try {
+      // 검색 결과가 사용자 입력과 유사한지 검증하는 함수
+      const isNameSimilar = (userInput: string, resultName: string): boolean => {
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, '').replace(/[주식회사㈜(주)]/g, '');
+        const normalizedInput = normalize(userInput);
+        const normalizedResult = normalize(resultName);
+
+        // 정확히 일치하거나 포함 관계
+        if (normalizedResult === normalizedInput) return true;
+        if (normalizedResult.includes(normalizedInput)) return true;
+        if (normalizedInput.includes(normalizedResult)) return true;
+
+        // 시작 부분이 일치 (예: "삼성" -> "삼성전자")
+        if (normalizedResult.startsWith(normalizedInput) || normalizedInput.startsWith(normalizedResult)) return true;
+
+        // 공통 문자 비율 계산 (Jaccard-like)
+        const inputChars = new Set(normalizedInput);
+        const resultChars = new Set(normalizedResult);
+        const intersection = [...inputChars].filter(c => resultChars.has(c)).length;
+        const union = new Set([...inputChars, ...resultChars]).size;
+        const similarity = intersection / union;
+
+        // 60% 이상 유사하면 허용 (더 엄격하게 조정)
+        return similarity >= 0.6;
+      };
+
       // 종목명을 심볼로 변환
       const convertToSymbols = async (
         stockNames: string[]
-      ): Promise<{ 
-        symbols: string[]; 
+      ): Promise<{
+        symbols: string[];
         nameMap: Map<string, string>;
         foundMap: Map<string, boolean>; // 원본 이름 -> 검색 성공 여부
       }> => {
@@ -182,9 +204,19 @@ export default function HomePage() {
             const results = await searchStocks(name);
 
             if (results.length > 0) {
-              // 첫 번째 결과의 심볼 사용
-              const symbol = results[0].symbol;
-              const matchedName = results[0].name; // 검색 결과의 정확한 종목명 사용
+              // 검색 결과 검증: 사용자 입력과 유사한 결과만 사용
+              // 첫 번째 결과가 유사하지 않으면 다른 결과에서 찾기
+              let bestMatch = results.find(r => isNameSimilar(name, r.name));
+
+              if (!bestMatch) {
+                // 유사한 결과가 없으면 첫 번째 결과 사용 전 경고
+                console.warn(`[Search Validation] No similar match found for "${name}". Top result: "${results[0].name}" (${results[0].symbol})`);
+                // 유사도가 너무 낮으면 검색 실패로 처리
+                throw new Error(`"${name}"에 대한 정확한 검색 결과를 찾을 수 없습니다. 첫 번째 검색 결과 "${results[0].name}"이(가) 입력과 다릅니다. 정확한 종목명을 입력해주세요.`);
+              }
+
+              const symbol = bestMatch.symbol;
+              const matchedName = bestMatch.name;
               symbols.push(symbol);
               nameMap.set(symbol, matchedName);
               foundMap.set(name, true); // 검색 성공
@@ -890,5 +922,14 @@ export default function HomePage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Suspense boundary로 감싸서 useSearchParams 지원
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen">Loading...</div>}>
+      <HomePageContent />
+    </Suspense>
   );
 }
