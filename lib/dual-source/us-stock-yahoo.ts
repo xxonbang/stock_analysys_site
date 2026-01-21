@@ -5,6 +5,7 @@
  * - yahoo-finance2 라이브러리 사용
  * - Rate limit: 약 100 calls/minute (비공식)
  * - 상세한 재무 데이터 제공
+ * - 캐시 적용으로 Rate Limit 방지
  */
 
 import yahooFinance from 'yahoo-finance2';
@@ -19,6 +20,7 @@ import type {
   StockMarketData,
   ComprehensiveStockData,
 } from './types';
+import { cache, CacheKey, CACHE_TTL, withCache } from '../cache';
 
 async function retryWithDelay<T>(
   fn: () => Promise<T>,
@@ -41,6 +43,11 @@ async function retryWithDelay<T>(
   }
   throw new Error('Max retries exceeded');
 }
+
+// 듀얼소스용 캐시 키 (ComprehensiveStockData용)
+const DualSourceCacheKey = {
+  usStock: (symbol: string) => `dual:us:${symbol}`,
+};
 
 export class USStockYahooCollector implements StockDataCollector {
   private async getQuote(symbol: string) {
@@ -287,6 +294,17 @@ export class USStockYahooCollector implements StockDataCollector {
 
   async collectAll(symbol: string): Promise<CollectionResult<ComprehensiveStockData>> {
     const startTime = Date.now();
+    const cacheKey = DualSourceCacheKey.usStock(symbol);
+
+    // 캐시 확인
+    const cached = cache.get<CollectionResult<ComprehensiveStockData>>(cacheKey);
+    if (cached && cached.success) {
+      console.log(`[Yahoo DualSource] Cache HIT for ${symbol}`);
+      return {
+        ...cached,
+        latency: Date.now() - startTime, // 캐시 히트 시 레이턴시 재계산
+      };
+    }
 
     try {
       // quote와 quoteSummary를 먼저 한 번에 호출
@@ -367,13 +385,19 @@ export class USStockYahooCollector implements StockDataCollector {
         source: 'api',
       };
 
-      return {
+      const result: CollectionResult<ComprehensiveStockData> = {
         data: comprehensiveData,
         source: 'api',
         timestamp: Date.now(),
         success: true,
         latency: Date.now() - startTime,
       };
+
+      // 캐시에 저장 (5분 TTL)
+      cache.set(cacheKey, result, CACHE_TTL.STOCK_DATA);
+      console.log(`[Yahoo DualSource] Fetched and cached ${symbol}`);
+
+      return result;
     } catch (error) {
       return {
         data: null,

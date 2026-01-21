@@ -13,6 +13,7 @@ import {
   fetchExchangeRate,
   fetchVIX,
   fetchNews,
+  fetchUnifiedQuotesBatch,
 } from "@/lib/finance-adapter";
 import {
   fetchKoreaSupplyDemand,
@@ -574,7 +575,7 @@ export async function POST(request: NextRequest) {
     );
 
     // 배치로 모든 종목 데이터 수집
-    // Python 스크립트 사용 가능하면 우선 사용 (로컬 테스트용)
+    // 우선순위: 듀얼소스(finance-adapter) → Python 스크립트(fallback)
     console.log(`Fetching data for ${stocks.length} stocks...`);
 
     // 단계 1: 데이터 수집 시작
@@ -586,86 +587,116 @@ export async function POST(request: NextRequest) {
 
     let stockDataMap: Map<string, StockData>;
 
-    // Python 스크립트 직접 사용 (로컬 환경에서 테스트)
-    // 환경 변수 확인 또는 강제 사용
-    const usePython =
+    // Python fallback 사용 가능 여부 확인
+    const pythonFallbackEnabled =
       process.env.USE_PYTHON_SCRIPT === "true" ||
       process.env.DATA_SOURCE === "vercel";
 
-    if (usePython) {
+    // 1차 시도: finance-adapter 사용 (듀얼소스 또는 기본 소스)
+    console.log(
+      `[DataCollection] Primary: finance-adapter (USE_DUAL_SOURCE=${process.env.USE_DUAL_SOURCE || 'false'})`,
+    );
+    console.log(`Original symbols: ${stocks.join(", ")}`);
+
+    try {
+      stockDataMap = await fetchStocksData(stocks);
       console.log(
-        `Using Python script directly... (historical period: ${historicalAnalysisPeriod}, forecast period: ${analysisPeriod})`,
+        `[DataCollection] Success via finance-adapter: ${Array.from(stockDataMap.keys()).join(", ")}`,
       );
-      console.log(`Original symbols: ${stocks.join(", ")}`);
-      try {
+
+      // 데이터가 비어있으면 Python fallback 시도
+      if (stockDataMap.size === 0 && pythonFallbackEnabled) {
+        console.warn(
+          "[DataCollection] finance-adapter returned no data, trying Python fallback...",
+        );
         const { fetchStocksDataBatchVercel } =
           await import("@/lib/finance-vercel");
-        // 과거 이력 분석 기간으로 데이터 수집
         stockDataMap = await fetchStocksDataBatchVercel(
           stocks,
           historicalAnalysisPeriod,
         );
         console.log(
-          `Fetched data for symbols: ${Array.from(stockDataMap.keys()).join(
-            ", ",
-          )}`,
+          `[DataCollection] Python fallback result: ${Array.from(stockDataMap.keys()).join(", ")}`,
         );
+      }
+    } catch (primaryError) {
+      console.error(
+        "[DataCollection] finance-adapter failed:",
+        primaryError instanceof Error ? primaryError.message : primaryError,
+      );
 
-        // Python 스크립트가 실패하면 fallback
-        if (stockDataMap.size === 0) {
-          console.warn(
-            "Python script returned no data, falling back to yahoo-finance2",
-          );
-          try {
-            stockDataMap = await fetchStocksData(stocks);
-          } catch (fallbackError) {
-            console.error(
-              "Fallback to yahoo-finance2 also failed:",
-              fallbackError,
-            );
-            throw new Error(
-              `모든 종목 데이터 수집에 실패했습니다: ${
-                fallbackError instanceof Error
-                  ? fallbackError.message
-                  : String(fallbackError)
-              }`,
-            );
-          }
-        }
-      } catch (error) {
-        console.error(
-          "Python script failed, falling back to yahoo-finance2:",
-          error,
+      // 2차 시도: Python 스크립트 fallback
+      if (pythonFallbackEnabled) {
+        console.log(
+          `[DataCollection] Fallback: Python script (historical period: ${historicalAnalysisPeriod})`,
         );
         try {
-          stockDataMap = await fetchStocksData(stocks);
+          const { fetchStocksDataBatchVercel } =
+            await import("@/lib/finance-vercel");
+          stockDataMap = await fetchStocksDataBatchVercel(
+            stocks,
+            historicalAnalysisPeriod,
+          );
+          console.log(
+            `[DataCollection] Python fallback success: ${Array.from(stockDataMap.keys()).join(", ")}`,
+          );
+
+          if (stockDataMap.size === 0) {
+            throw new Error("Python fallback also returned no data");
+          }
         } catch (fallbackError) {
           console.error(
-            "Fallback to yahoo-finance2 also failed:",
+            "[DataCollection] Python fallback also failed:",
             fallbackError,
           );
           throw new Error(
-            `모든 종목 데이터 수집에 실패했습니다: ${
+            `모든 종목 데이터 수집에 실패했습니다: Primary(${
+              primaryError instanceof Error
+                ? primaryError.message
+                : String(primaryError)
+            }), Fallback(${
               fallbackError instanceof Error
                 ? fallbackError.message
                 : String(fallbackError)
-            }`,
+            })`,
           );
         }
+      } else {
+        // Python fallback 비활성화 상태면 원래 에러 throw
+        throw new Error(
+          `종목 데이터 수집에 실패했습니다: ${
+            primaryError instanceof Error
+              ? primaryError.message
+              : String(primaryError)
+          }`,
+        );
       }
-    } else {
-      stockDataMap = await fetchStocksData(stocks);
     }
 
-    // 환율 및 VIX는 한 번만 조회
-    const [exchangeRate, vix] = await Promise.all([
-      indicators.exchangeRate
-        ? fetchExchangeRate().catch(() => null)
-        : Promise.resolve(null),
-      indicators.fearGreed
-        ? fetchVIX().catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    // 환율 및 VIX 조회 (통합 배치 또는 개별 캐시)
+    // 최적화: 둘 다 필요하면 1회 API 호출, 캐시 있으면 API 호출 없음
+    let exchangeRate: number | null = null;
+    let vix: number | null = null;
+
+    if (indicators.exchangeRate || indicators.fearGreed) {
+      try {
+        // 빈 배열로 호출하면 환율/VIX만 배치로 가져옴 (캐시 활용)
+        const unifiedResult = await fetchUnifiedQuotesBatch([], {
+          includeExchangeRate: indicators.exchangeRate,
+          includeVIX: indicators.fearGreed,
+        });
+        exchangeRate = unifiedResult.exchangeRate;
+        vix = unifiedResult.vix;
+        console.log(`[DataCollection] Unified batch: exchangeRate=${exchangeRate}, vix=${vix}`);
+      } catch (error) {
+        console.warn("[DataCollection] Unified batch failed, using individual fetches:", error);
+        // 폴백: 개별 호출 (캐시 있으면 캐시에서 반환)
+        [exchangeRate, vix] = await Promise.all([
+          indicators.exchangeRate ? fetchExchangeRate().catch(() => null) : Promise.resolve(null),
+          indicators.fearGreed ? fetchVIX().catch(() => null) : Promise.resolve(null),
+        ]);
+      }
+    }
 
     // 단계 1: 데이터 수집 완료
     const dataCollectionEnd = Date.now();

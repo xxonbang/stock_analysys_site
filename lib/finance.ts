@@ -1,6 +1,7 @@
 import yahooFinance from 'yahoo-finance2';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { cache, CacheKey, CACHE_TTL, withCache } from './cache';
 
 export interface StockData {
   symbol: string;
@@ -127,7 +128,7 @@ async function retryWithDelay<T>(
  * 여러 종목의 quote 데이터를 배치로 수집
  * @param symbols 주식 티커 심볼 배열
  */
-export async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, any>> {
+export async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, unknown>> {
   try {
     // 모든 종목의 quote를 한 번에 요청 (배치 처리)
     // quote()는 배열을 받으면 QuoteResponseArray를 반환
@@ -136,10 +137,10 @@ export async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, a
       3,
       3000
     );
-    
+
     // 결과를 심볼별로 매핑
-    const quoteMap = new Map<string, any>();
-    
+    const quoteMap = new Map<string, unknown>();
+
     if (Array.isArray(quotes)) {
       // 배열 형태로 반환된 경우
       quotes.forEach((quote) => {
@@ -155,7 +156,7 @@ export async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, a
         }
       });
     }
-    
+
     return quoteMap;
   } catch (error) {
     console.error('Error fetching quotes batch:', error);
@@ -168,24 +169,149 @@ export async function fetchQuotesBatch(symbols: string[]): Promise<Map<string, a
 }
 
 /**
- * yahoo-finance2를 사용하여 주식 데이터 수집
+ * 통합 배치 Quote 조회 (주식 + 환율 + VIX를 1회 API 호출로 처리)
+ *
+ * 최적화: 기존 3회 호출 → 1회 호출
+ * - quote(symbol)
+ * - quote('KRW=X') → 환율
+ * - quote('^VIX') → VIX
+ *
+ * @param symbols 주식 심볼 배열
+ * @param options 추가 옵션 (환율, VIX 포함 여부)
+ */
+export interface UnifiedQuoteResult {
+  stockQuotes: Map<string, unknown>;
+  exchangeRate: number | null;
+  vix: number | null;
+}
+
+export async function fetchUnifiedQuotesBatch(
+  symbols: string[],
+  options: { includeExchangeRate?: boolean; includeVIX?: boolean } = {}
+): Promise<UnifiedQuoteResult> {
+  const { includeExchangeRate = true, includeVIX = true } = options;
+
+  // 캐시 키
+  const exchangeRateCacheKey = CacheKey.exchangeRate();
+  const vixCacheKey = CacheKey.vix();
+
+  // 캐시에서 환율과 VIX 확인
+  const cachedExchangeRate = includeExchangeRate ? cache.get<number>(exchangeRateCacheKey) : null;
+  const cachedVIX = includeVIX ? cache.get<number>(vixCacheKey) : null;
+
+  // 배치 요청할 심볼 목록 구성
+  const batchSymbols = [...symbols];
+
+  // 캐시 미스인 경우만 배치에 추가
+  if (includeExchangeRate && cachedExchangeRate === null) {
+    batchSymbols.push('KRW=X');
+  }
+  if (includeVIX && cachedVIX === null) {
+    batchSymbols.push('^VIX');
+  }
+
+  console.log(`[Yahoo Finance] Unified batch quote: ${batchSymbols.length} symbols (${symbols.length} stocks${cachedExchangeRate === null && includeExchangeRate ? ' + KRW=X' : ''}${cachedVIX === null && includeVIX ? ' + ^VIX' : ''})`);
+
+  // 배치 요청
+  const quoteMap = await fetchQuotesBatch(batchSymbols);
+
+  // 결과 분리
+  const stockQuotes = new Map<string, unknown>();
+  let exchangeRate: number | null = cachedExchangeRate;
+  let vix: number | null = cachedVIX;
+
+  for (const [symbol, quote] of quoteMap.entries()) {
+    if (symbol === 'KRW=X') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rate = (quote as any)?.regularMarketPrice;
+      if (rate) {
+        exchangeRate = rate;
+        cache.set(exchangeRateCacheKey, rate, CACHE_TTL.EXCHANGE_RATE);
+        console.log(`[Yahoo Finance] Exchange rate cached: ${rate}`);
+      }
+    } else if (symbol === '^VIX') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const vixValue = (quote as any)?.regularMarketPrice;
+      if (vixValue) {
+        vix = vixValue;
+        cache.set(vixCacheKey, vixValue, CACHE_TTL.VIX);
+        console.log(`[Yahoo Finance] VIX cached: ${vixValue}`);
+      }
+    } else {
+      stockQuotes.set(symbol, quote);
+    }
+  }
+
+  return {
+    stockQuotes,
+    exchangeRate,
+    vix,
+  };
+}
+
+/**
+ * Historical 데이터 조회 (캐시 적용 - 1시간 TTL)
+ * 과거 데이터는 변하지 않으므로 긴 TTL 적용
+ */
+async function fetchHistoricalDataCached(
+  symbol: string,
+  days: number = 180
+): Promise<Array<{ date: Date; close: number; volume: number; high: number; low: number; open: number }>> {
+  const cacheKey = CacheKey.historical(symbol, days);
+
+  return withCache(cacheKey, CACHE_TTL.HISTORICAL, async () => {
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const historical = await retryWithDelay(
+      () =>
+        yahooFinance.historical(symbol, {
+          period1: Math.floor(startDate.getTime() / 1000),
+          period2: Math.floor(endDate.getTime() / 1000),
+          interval: '1d',
+        }),
+      3,
+      2000
+    );
+
+    console.log(`[Yahoo Finance] Historical data fetched for ${symbol}: ${historical?.length || 0} days`);
+    return historical || [];
+  });
+}
+
+/**
+ * yahoo-finance2를 사용하여 주식 데이터 수집 - 캐시 적용 (5분 TTL)
  * @param symbol 주식 티커 심볼 (예: "AAPL", "005930.KS")
  * @param quoteData 이미 가져온 quote 데이터 (선택사항, 배치 요청 시 사용)
+ * @param skipCache 캐시 건너뛰기 (강제 새로고침용)
  */
 export async function fetchStockData(
   symbol: string,
-  quoteData?: any
+  quoteData?: unknown,
+  skipCache: boolean = false
 ): Promise<StockData> {
   const startTime = Date.now();
   const { metrics } = await import('./data-metrics');
 
+  // 캐시 확인 (quoteData가 제공되지 않고 skipCache가 false인 경우만)
+  if (!quoteData && !skipCache) {
+    const cacheKey = CacheKey.stockData(symbol);
+    const cached = cache.get<StockData>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+
   try {
     // quote 데이터가 제공되지 않은 경우에만 개별 요청
-    let quote = quoteData;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let quote = quoteData as any;
     if (!quote) {
       quote = await retryWithDelay(() => yahooFinance.quote(symbol), 3, 3000);
+      console.log(`[Yahoo Finance] Quote fetched for ${symbol}`);
     }
-    
+
     if (!quote || !quote.regularMarketPrice) {
       throw new Error(`Invalid symbol or no data available: ${symbol}`);
     }
@@ -201,32 +327,18 @@ export async function fetchStockData(
     const volume = Math.max(0, quote.regularMarketVolume || 0);
     const marketCap = quote.marketCap && quote.marketCap > 0 ? quote.marketCap : undefined;
 
-    // 과거 180일치 데이터 조회 (이동평균선 계산을 위해 충분히 확보)
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 180);
-
     // 요청 간 딜레이 추가 (rate limiting 방지)
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const historical = await retryWithDelay(
-      () =>
-        yahooFinance.historical(symbol, {
-          period1: Math.floor(startDate.getTime() / 1000),
-          period2: Math.floor(endDate.getTime() / 1000),
-          interval: '1d',
-        }),
-      3,
-      2000
-    );
+    // Historical 데이터 조회 (캐시 적용됨)
+    const historical = await fetchHistoricalDataCached(symbol, 180);
 
     if (!historical || historical.length === 0) {
       throw new Error(`No historical data available for ${symbol}`);
     }
 
     // historical 데이터를 날짜 기준 정렬 (과거 → 최신 순서 보장)
-    // Yahoo Finance는 보통 "과거 → 최신" 순서이지만, 정렬하여 일관성 보장
-    const sortedHistorical = [...historical].sort((a, b) => 
+    const sortedHistorical = [...historical].sort((a, b) =>
       a.date.getTime() - b.date.getTime()
     );
 
@@ -270,7 +382,7 @@ export async function fetchStockData(
       historicalDataPoints: historicalData.length,
     });
 
-    return {
+    const result: StockData = {
       symbol,
       price: currentPrice,
       change,
@@ -287,6 +399,13 @@ export async function fetchStockData(
       disparity,
       historicalData,
     };
+
+    // 결과 캐싱 (quoteData가 제공되지 않은 경우만 - 배치 요청이 아닐 때)
+    if (!quoteData) {
+      cache.set(CacheKey.stockData(symbol), result, CACHE_TTL.STOCK_DATA);
+    }
+
+    return result;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     metrics.error(symbol, 'Yahoo Finance', errorMessage);
@@ -346,32 +465,43 @@ export async function fetchStocksDataBatch(symbols: string[]): Promise<Map<strin
 }
 
 /**
- * 환율 데이터 조회 (USD/KRW)
+ * 환율 데이터 조회 (USD/KRW) - 캐시 적용 (10분 TTL)
  */
 export async function fetchExchangeRate(): Promise<number> {
-  try {
-    const quote = await retryWithDelay(() => yahooFinance.quote('KRW=X'), 3, 2000);
-    if (!quote || !quote.regularMarketPrice) {
-      throw new Error('Failed to fetch exchange rate');
+  const cacheKey = CacheKey.exchangeRate();
+
+  return withCache(cacheKey, CACHE_TTL.EXCHANGE_RATE, async () => {
+    try {
+      const quote = await retryWithDelay(() => yahooFinance.quote('KRW=X'), 3, 2000);
+      if (!quote || !quote.regularMarketPrice) {
+        throw new Error('Failed to fetch exchange rate');
+      }
+      console.log(`[Yahoo Finance] Exchange rate fetched: ${quote.regularMarketPrice}`);
+      return quote.regularMarketPrice;
+    } catch (error) {
+      console.error('Error fetching exchange rate:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('Too Many Requests')) {
+        throw new Error('Yahoo Finance API 요청 한도 초과. 잠시 후 다시 시도해주세요.');
+      }
+      throw new Error('Failed to fetch USD/KRW exchange rate');
     }
-    return quote.regularMarketPrice;
-  } catch (error) {
-    console.error('Error fetching exchange rate:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes('Too Many Requests')) {
-      throw new Error('Yahoo Finance API 요청 한도 초과. 잠시 후 다시 시도해주세요.');
-    }
-    throw new Error('Failed to fetch USD/KRW exchange rate');
-  }
+  });
 }
 
 /**
- * VIX 지수 조회 (공포/탐욕 지표 대용)
+ * VIX 지수 조회 (공포/탐욕 지표 대용) - 캐시 적용 (10분 TTL)
  */
 export async function fetchVIX(): Promise<number | null> {
+  const cacheKey = CacheKey.vix();
+
   try {
-    const quote = await retryWithDelay(() => yahooFinance.quote('^VIX'), 3, 2000);
-    return quote?.regularMarketPrice || null;
+    return await withCache(cacheKey, CACHE_TTL.VIX, async () => {
+      const quote = await retryWithDelay(() => yahooFinance.quote('^VIX'), 3, 2000);
+      const vix = quote?.regularMarketPrice || null;
+      console.log(`[Yahoo Finance] VIX fetched: ${vix}`);
+      return vix;
+    });
   } catch (error) {
     console.error('Error fetching VIX:', error);
     return null;
@@ -422,6 +552,11 @@ export async function fetchKoreaSupplyDemand(symbol: string): Promise<SupplyDema
 /**
  * 네이버 금융에서 한국 주식의 수급 데이터 크롤링 (Fallback)
  * @param symbol 한국 주식 티커 (예: "005930")
+ *
+ * 네이버 금융 페이지 구조 (2026년 기준):
+ * - 테이블 class: type2
+ * - 컬럼: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 기관순매매 | 외국인순매매 | 보유주수 | 보유율
+ * - 인덱스: 0     1      2       3       4         5           6          7        8
  */
 async function fetchKoreaSupplyDemandNaver(symbol: string): Promise<SupplyDemandData | null> {
   const startTime = Date.now();
@@ -430,69 +565,50 @@ async function fetchKoreaSupplyDemandNaver(symbol: string): Promise<SupplyDemand
   try {
     // 네이버 금융 투자자별 매매동향 페이지 URL
     const url = `https://finance.naver.com/item/frgn.naver?code=${symbol}`;
-    
+
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
       },
       timeout: 10000,
+      responseType: 'arraybuffer', // 한글 인코딩 처리를 위해
     });
 
-    const $ = cheerio.load(response.data);
-    
-    // 투자자별 매매동향 테이블 찾기
-    // 네이버 금융 페이지 구조에 맞게 파싱
+    // EUC-KR → UTF-8 변환
+    const html = new TextDecoder('euc-kr').decode(response.data);
+    const $ = cheerio.load(html);
+
     let institutional = 0;
     let foreign = 0;
     let individual = 0;
 
-    // 테이블에서 데이터 추출 (최신 데이터는 보통 첫 번째 행)
-    $('table.type_1 tbody tr').each((index, element) => {
-      if (index === 0) {
-        // 첫 번째 행이 최신 데이터
-        const cells = $(element).find('td');
-        if (cells.length >= 4) {
-          // 기관, 외국인, 개인 순서로 데이터가 있음
-          const institutionalText = $(cells[1]).text().trim().replace(/,/g, '');
-          const foreignText = $(cells[2]).text().trim().replace(/,/g, '');
-          const individualText = $(cells[3]).text().trim().replace(/,/g, '');
+    // 외국인 기관 순매매 거래량 테이블 (type2 class)
+    // 첫 번째 데이터 행 찾기 (헤더 행 제외)
+    $('table.type2 tr').each((index, element) => {
+      const cells = $(element).find('td');
 
-          // 숫자 검증 및 파싱
-          const institutionalParsed = parseInt(institutionalText.replace(/[^-\d]/g, ''), 10);
-          const foreignParsed = parseInt(foreignText.replace(/[^-\d]/g, ''), 10);
-          const individualParsed = parseInt(individualText.replace(/[^-\d]/g, ''), 10);
+      // 최소 7개의 td가 있고, 첫 번째 데이터 행인 경우
+      if (cells.length >= 7) {
+        // 기관 순매매량 (index 5)
+        const institutionalText = $(cells[5]).text().trim().replace(/,/g, '').replace(/\+/g, '');
+        // 외국인 순매매량 (index 6)
+        const foreignText = $(cells[6]).text().trim().replace(/,/g, '').replace(/\+/g, '');
 
-          // NaN 체크
-          if (!isNaN(institutionalParsed)) institutional = institutionalParsed;
-          if (!isNaN(foreignParsed)) foreign = foreignParsed;
-          if (!isNaN(individualParsed)) individual = individualParsed;
+        const institutionalParsed = parseInt(institutionalText.replace(/[^-\d]/g, ''), 10);
+        const foreignParsed = parseInt(foreignText.replace(/[^-\d]/g, ''), 10);
+
+        if (!isNaN(institutionalParsed) && !isNaN(foreignParsed)) {
+          institutional = institutionalParsed;
+          foreign = foreignParsed;
+          // 개인은 기관+외국인의 반대값으로 추정 (수급 합계 = 0)
+          individual = -(institutional + foreign);
+          console.log(`[Naver Supply/Demand] Parsed for ${symbol}: institutional=${institutional}, foreign=${foreign}, individual=${individual}`);
+          return false; // 첫 번째 유효한 행만 사용
         }
       }
     });
-
-    // 대안: 다른 테이블 구조 시도
-    if (institutional === 0 && foreign === 0 && individual === 0) {
-      // 투자자별 매매동향 섹션에서 직접 추출 시도
-      $('.section.trade_compare table tbody tr').each((index, element) => {
-        if (index === 0) {
-          const cells = $(element).find('td');
-          if (cells.length >= 4) {
-            // 숫자 검증 및 파싱
-            const institutionalText2 = $(cells[1]).text().trim().replace(/,/g, '');
-            const foreignText2 = $(cells[2]).text().trim().replace(/,/g, '');
-            const individualText2 = $(cells[3]).text().trim().replace(/,/g, '');
-
-            const institutionalParsed2 = parseInt(institutionalText2.replace(/[^-\d]/g, ''), 10);
-            const foreignParsed2 = parseInt(foreignText2.replace(/[^-\d]/g, ''), 10);
-            const individualParsed2 = parseInt(individualText2.replace(/[^-\d]/g, ''), 10);
-
-            if (!isNaN(institutionalParsed2)) institutional = institutionalParsed2;
-            if (!isNaN(foreignParsed2)) foreign = foreignParsed2;
-            if (!isNaN(individualParsed2)) individual = individualParsed2;
-          }
-        }
-      });
-    }
 
     // 데이터 검증: 실제로 0인 경우와 파싱 실패를 구분하기 어려우므로
     // 최소한 하나라도 0이 아니면 유효한 데이터로 간주
@@ -525,35 +641,42 @@ async function fetchKoreaSupplyDemandNaver(symbol: string): Promise<SupplyDemand
 }
 
 /**
- * 뉴스 헤드라인 수집
+ * 뉴스 헤드라인 수집 - 캐시 적용 (30분 TTL)
  * @param symbol 주식 티커
  * @param count 수집할 뉴스 개수 (기본값: 5)
  */
 export async function fetchNews(symbol: string, count: number = 5): Promise<Array<{ title: string; link: string; date: string }>> {
+  const cacheKey = CacheKey.news(symbol);
+
   try {
-    const news = await yahooFinance.search(symbol, {
-      newsCount: count,
-    });
+    return await withCache(cacheKey, CACHE_TTL.NEWS, async () => {
+      const news = await yahooFinance.search(symbol, {
+        newsCount: count,
+      });
 
-    if (!news || !news.news) {
-      return [];
-    }
-
-    return news.news.slice(0, count).map((item) => {
-      let dateStr = '';
-      if (item.providerPublishTime) {
-        const timestamp = typeof item.providerPublishTime === 'number' 
-          ? item.providerPublishTime 
-          : parseInt(String(item.providerPublishTime), 10);
-        if (!isNaN(timestamp)) {
-          dateStr = new Date(timestamp * 1000).toISOString();
-        }
+      if (!news || !news.news) {
+        return [];
       }
-      return {
-        title: item.title || '',
-        link: item.link || '',
-        date: dateStr,
-      };
+
+      const result = news.news.slice(0, count).map((item) => {
+        let dateStr = '';
+        if (item.providerPublishTime) {
+          const timestamp = typeof item.providerPublishTime === 'number'
+            ? item.providerPublishTime
+            : parseInt(String(item.providerPublishTime), 10);
+          if (!isNaN(timestamp)) {
+            dateStr = new Date(timestamp * 1000).toISOString();
+          }
+        }
+        return {
+          title: item.title || '',
+          link: item.link || '',
+          date: dateStr,
+        };
+      });
+
+      console.log(`[Yahoo Finance] News fetched for ${symbol}: ${result.length} items`);
+      return result;
     });
   } catch (error) {
     console.error(`Error fetching news for ${symbol}:`, error);

@@ -8,16 +8,21 @@
  * - Fallback 메커니즘
  */
 
-import type { StockData, SupplyDemandData } from './finance';
+import type { StockData, SupplyDemandData, UnifiedQuoteResult } from './finance';
 import {
   fetchStocksDataBatch as fetchYahooBatch,
   fetchExchangeRate as fetchYahooExchangeRate,
   fetchVIX as fetchYahooVIX,
   fetchNews as fetchYahooNews,
+  fetchUnifiedQuotesBatch,
   calculateRSI,
   calculateMA,
   calculateDisparity,
 } from './finance';
+
+// 통합 배치 함수 re-export
+export { fetchUnifiedQuotesBatch } from './finance';
+export type { UnifiedQuoteResult } from './finance';
 
 import {
   fetchStocksDataBatchFinnhub,
@@ -48,34 +53,36 @@ const USE_DUAL_SOURCE = process.env.USE_DUAL_SOURCE === 'true';
 
 /**
  * 자동으로 최적의 데이터 소스 선택
+ *
+ * 우선순위:
+ * 1. DATA_SOURCE 명시적 설정
+ * 2. USE_DUAL_SOURCE=true → 듀얼소스 (교차 검증)
+ * 3. Finnhub API 키 존재 → Finnhub
+ * 4. 기본값 → Yahoo Finance
+ *
+ * 참고: Python/Vercel fallback은 analyze/route.ts에서 처리
  */
 function selectDataSource(symbols: string[]): DataSource {
   // 명시적으로 설정된 경우
   if (DEFAULT_DATA_SOURCE !== 'auto') {
+    console.log(`[DataSource] Using explicit DATA_SOURCE: ${DEFAULT_DATA_SOURCE} for ${symbols.length} symbols`);
     return DEFAULT_DATA_SOURCE;
   }
 
   // 듀얼 소스 활성화 설정이 있으면 최우선
   if (USE_DUAL_SOURCE) {
+    console.log('[DataSource] Using dual-source (cross-validation enabled)');
     return 'dual-source';
-  }
-
-  // Python 스크립트 사용 설정이 있으면 (로컬 테스트용)
-  if (process.env.USE_PYTHON_SCRIPT === 'true') {
-    return 'vercel';
-  }
-
-  // Vercel 환경이고 Python 함수가 있으면 Vercel 사용
-  if (process.env.VERCEL && process.env.USE_VERCEL_PYTHON !== 'false') {
-    return 'vercel';
   }
 
   // Finnhub API 키가 있으면 Finnhub 사용
   if (process.env.FINNHUB_API_KEY) {
+    console.log('[DataSource] Using Finnhub API');
     return 'finnhub';
   }
 
   // 그 외에는 Yahoo Finance
+  console.log('[DataSource] Using Yahoo Finance (default)');
   return 'yahoo';
 }
 
@@ -297,20 +304,37 @@ export async function fetchNews(
   symbol: string,
   count: number = 5
 ): Promise<Array<{ title: string; link: string; date: string }>> {
-  const dataSource = selectDataSource([symbol]);
+  console.log(`[fetchNews] Fetching news for ${symbol}...`);
 
+  // 1차 시도: Yahoo Finance
   try {
-    if (dataSource === 'finnhub') {
-      const normalizedSymbol = normalizeKoreaSymbol(symbol);
-      const news = await fetchNewsFinnhub(normalizedSymbol, count);
-      if (news.length > 0) return news;
-      // Fallback to Yahoo
-      return await fetchYahooNews(symbol, count);
-    } else {
-      return await fetchYahooNews(symbol, count);
+    const yahooNews = await fetchYahooNews(symbol, count);
+    if (yahooNews.length > 0) {
+      console.log(`[fetchNews] Yahoo Finance success: ${yahooNews.length} news for ${symbol}`);
+      return yahooNews;
     }
-  } catch (error) {
-    console.error(`Error fetching news for ${symbol}:`, error);
-    return [];
+    console.log(`[fetchNews] Yahoo Finance returned empty, trying Finnhub fallback...`);
+  } catch (yahooError) {
+    console.warn(`[fetchNews] Yahoo Finance failed for ${symbol}:`, yahooError instanceof Error ? yahooError.message : yahooError);
   }
+
+  // 2차 시도: Finnhub (fallback)
+  try {
+    // 한국 주식의 경우 미국 주식 심볼로 변환 불가하므로 Finnhub은 미국 주식만 지원
+    // 한국 주식(.KS, .KQ 또는 6자리 숫자)인 경우 빈 배열 반환
+    const isKoreaStock = symbol.endsWith('.KS') || symbol.endsWith('.KQ') || /^\d{6}$/.test(symbol.replace(/\.(KS|KQ)$/, ''));
+
+    if (!isKoreaStock && process.env.FINNHUB_API_KEY) {
+      const finnhubNews = await fetchNewsFinnhub(symbol, count);
+      if (finnhubNews.length > 0) {
+        console.log(`[fetchNews] Finnhub fallback success: ${finnhubNews.length} news for ${symbol}`);
+        return finnhubNews;
+      }
+    }
+  } catch (finnhubError) {
+    console.warn(`[fetchNews] Finnhub fallback also failed for ${symbol}:`, finnhubError instanceof Error ? finnhubError.message : finnhubError);
+  }
+
+  console.warn(`[fetchNews] All news sources failed for ${symbol}, returning empty array`);
+  return [];
 }
