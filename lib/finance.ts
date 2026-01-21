@@ -253,7 +253,7 @@ export async function fetchUnifiedQuotesBatch(
  * Historical 데이터 조회 (캐시 적용 - 1시간 TTL)
  * 과거 데이터는 변하지 않으므로 긴 TTL 적용
  */
-async function fetchHistoricalDataCached(
+export async function fetchHistoricalDataCached(
   symbol: string,
   days: number = 180
 ): Promise<Array<{ date: Date; close: number; volume: number; high: number; low: number; open: number }>> {

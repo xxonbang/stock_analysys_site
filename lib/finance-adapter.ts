@@ -15,6 +15,7 @@ import {
   fetchVIX as fetchYahooVIX,
   fetchNews as fetchYahooNews,
   fetchUnifiedQuotesBatch,
+  fetchHistoricalDataCached,
   calculateRSI,
   calculateMA,
   calculateDisparity,
@@ -87,16 +88,26 @@ function selectDataSource(symbols: string[]): DataSource {
 }
 
 /**
- * 듀얼 소스에서 historicalData 수집을 위한 Yahoo Finance 호출
+ * 듀얼 소스에서 historicalData 수집을 위한 Yahoo Finance 호출 (캐시 적용)
+ *
+ * 캐시 TTL: 1시간 (과거 데이터는 변하지 않으므로)
  */
 async function fetchHistoricalDataYahoo(
   symbol: string
 ): Promise<Array<{ date: string; close: number; volume: number; high?: number; low?: number; open?: number }>> {
   try {
-    // Yahoo Finance에서 히스토리컬 데이터 수집
-    const yahooData = await fetchYahooBatch([symbol]);
-    const stockData = yahooData.get(symbol);
-    return stockData?.historicalData || [];
+    // 캐시된 Historical 데이터 조회 (1시간 TTL)
+    const historicalData = await fetchHistoricalDataCached(symbol, 180);
+
+    // Date 객체를 string으로 변환
+    return historicalData.map((d) => ({
+      date: d.date instanceof Date ? d.date.toISOString().split('T')[0] : String(d.date),
+      close: d.close,
+      volume: d.volume,
+      high: d.high,
+      low: d.low,
+      open: d.open,
+    }));
   } catch (error) {
     console.warn(`[DualSource] Historical data fetch failed for ${symbol}:`, error);
     return [];
