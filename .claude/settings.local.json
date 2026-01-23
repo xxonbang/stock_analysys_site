@@ -34,7 +34,9 @@
       "Bash(export FINNHUB_API_KEY=d5liti9r01qlna884kbgd5liti9r01qlna884kc0)",
       "Bash(git fetch:*)",
       "Bash(git restore:*)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+      "Bash(node -e:*)",
+      "Bash(perl:*)"
     ]
   }
 }
